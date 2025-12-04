@@ -1,0 +1,151 @@
+
+import { NextResponse } from 'next/server'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth'
+import { getLateRateLimitStatus, getProfilesWithPlatforms } from '@/lib/late-rate-limit'
+import { PrismaClient } from '@prisma/client'
+
+const prisma = new PrismaClient()
+
+export async function GET() {
+  try {
+    // Check authentication
+    const session = await getServerSession(authOptions)
+    if (!session?.user?.email) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    // Get user
+    const user = await prisma.user.findUnique({
+      where: { email: session.user.email },
+      select: { id: true }
+    })
+
+    if (!user) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 })
+    }
+
+    // Get user's profiles with platform settings
+    const profiles = await prisma.profile.findMany({
+      where: { userId: user.id },
+      include: {
+        platformSettings: {
+          where: {
+            isConnected: true,
+            platform: {
+              notIn: ['twitter'] // Twitter uses separate API
+            }
+          }
+        }
+      }
+    })
+
+    // If no profiles, return empty data
+    if (profiles.length === 0) {
+      return NextResponse.json({
+        hasData: false,
+        message: 'No profiles found'
+      })
+    }
+
+    // Get rate limit status for all user profiles
+    const profileIds = profiles.map(p => p.id)
+    const rateLimitStatus = getLateRateLimitStatus(profileIds)
+
+    // Create a map of existing rate limit data
+    const rateLimitMap = new Map(rateLimitStatus.map(p => [p.profileId, p]))
+    
+    // Build complete profile list with all platforms (even if 0 posts)
+    const ALL_PLATFORMS = ['instagram', 'facebook', 'linkedin', 'threads', 'tiktok', 'bluesky', 'youtube']
+    
+    const completeProfileList = profiles.map(profile => {
+      // Get existing rate limit data for this profile
+      const existingData = rateLimitMap.get(profile.id)
+      
+      if (existingData) {
+        // Profile has posting activity - ensure all platforms are shown
+        const existingPlatforms = new Set(existingData.platforms.map(p => p.platform))
+        
+        // Add missing platforms with 0 counts
+        const allPlatformStatuses = ALL_PLATFORMS.map(platform => {
+          const existing = existingData.platforms.find(p => p.platform === platform)
+          if (existing) return existing
+          
+          // Platform not in rate limit data yet - show as 0/8
+          return {
+            platform,
+            count: 0,
+            limit: 8,
+            remaining: 8,
+            statusLevel: 'good' as const,
+            percentageUsed: 0,
+            resetTime: null,
+            resetTimeFormatted: null
+          }
+        })
+        
+        return {
+          ...existingData,
+          profileName: profile.name, // Use database name, not cached name
+          platforms: allPlatformStatuses
+        }
+      } else {
+        // Profile has NO posting activity - show all platforms as 0/8
+        return {
+          profileId: profile.id,
+          profileName: profile.name,
+          platforms: ALL_PLATFORMS.map(platform => ({
+            platform,
+            count: 0,
+            limit: 8,
+            remaining: 8,
+            statusLevel: 'good' as const,
+            percentageUsed: 0,
+            resetTime: null,
+            resetTimeFormatted: null
+          })),
+          overallStatus: 'good' as const
+        }
+      }
+    })
+
+    // Calculate overall status across all profiles
+    let overallStatus: 'good' | 'warning' | 'critical' = 'good'
+    if (completeProfileList.some(p => p.overallStatus === 'critical')) {
+      overallStatus = 'critical'
+    } else if (completeProfileList.some(p => p.overallStatus === 'warning')) {
+      overallStatus = 'warning'
+    }
+
+    // Count platforms at limit
+    let platformsAtLimit = 0
+    let platformsWithWarning = 0
+    
+    for (const profile of completeProfileList) {
+      for (const platform of profile.platforms) {
+        if (platform.statusLevel === 'critical') {
+          platformsAtLimit++
+        } else if (platform.statusLevel === 'warning') {
+          platformsWithWarning++
+        }
+      }
+    }
+
+    return NextResponse.json({
+      hasData: true,
+      profiles: completeProfileList,
+      overallStatus,
+      platformsAtLimit,
+      platformsWithWarning,
+      totalPlatformsTracked: completeProfileList.reduce((sum, p) => sum + p.platforms.length, 0)
+    })
+  } catch (error: any) {
+    console.error('Error fetching Late rate limit status:', error)
+    return NextResponse.json(
+      { error: 'Failed to fetch rate limit status' },
+      { status: 500 }
+    )
+  }
+}
+
+export const dynamic = 'force-dynamic'

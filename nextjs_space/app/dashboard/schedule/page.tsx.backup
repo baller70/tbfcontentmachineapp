@@ -1,0 +1,2398 @@
+
+'use client'
+
+import { useState, useEffect } from 'react'
+import { useSearchParams } from 'next/navigation'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Badge } from '@/components/ui/badge'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import {
+  Calendar,
+  Clock,
+  Send,
+  Plus,
+  Instagram,
+  Linkedin,
+  Twitter,
+  MessageSquare,
+  Edit,
+  Trash2,
+  PlayCircle,
+  PauseCircle,
+  CheckCircle,
+  AlertCircle,
+  Sparkles,
+  Loader2
+} from 'lucide-react'
+import { useToast } from '@/hooks/use-toast'
+import { compressVideo, needsCompression, formatFileSize } from '@/lib/video-compression'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Progress } from '@/components/ui/progress'
+import BulkScheduleCalendar from '@/components/dashboard/bulk-schedule-calendar'
+
+interface Schedule {
+  id: string
+  title: string
+  content: string
+  caption?: string
+  hashtags?: string
+  platforms: string[]
+  scheduleType: string
+  scheduledAt: string
+  timezone: string
+  isRecurring: boolean
+  interval?: number
+  endDate?: string
+  status: string
+  nextRun?: string
+  runCount: number
+}
+
+const platforms = [
+  { id: 'instagram', label: 'Instagram', icon: Instagram },
+  { id: 'facebook', label: 'Facebook', icon: MessageSquare },
+  { id: 'linkedin', label: 'LinkedIn', icon: Linkedin },
+  { id: 'twitter', label: 'X (Twitter)', icon: Twitter },
+  { id: 'threads', label: 'Threads', icon: MessageSquare },
+  { id: 'tiktok', label: 'TikTok', icon: MessageSquare },
+  { id: 'bluesky', label: 'Bluesky', icon: MessageSquare },
+  { id: 'youtube', label: 'YouTube', icon: MessageSquare }
+]
+
+const scheduleTypes = [
+  { id: 'once', label: 'One-time', description: 'Post once at the specified time' },
+  { id: 'daily', label: 'Daily', description: 'Post every day' },
+  { id: 'weekly', label: 'Weekly', description: 'Post once per week' },
+  { id: 'custom', label: 'Custom Interval', description: 'Post at custom intervals' }
+]
+
+interface Profile {
+  id: string
+  name: string
+  description: string | null
+  isDefault: boolean
+  platformSettings: any[]
+}
+
+export default function SchedulePage() {
+  const searchParams = useSearchParams()
+  const [activeTab, setActiveTab] = useState('create')
+  const [schedules, setSchedules] = useState<Schedule[]>([])
+  const [profiles, setProfiles] = useState<Profile[]>([])
+  const [selectedProfileId, setSelectedProfileId] = useState<string>('')
+  const [isLoading, setIsLoading] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isGenerating, setIsGenerating] = useState(false)
+  const [isCompressing, setIsCompressing] = useState(false)
+  const [compressionProgress, setCompressionProgress] = useState(0)
+  const [compressionFileName, setCompressionFileName] = useState('')
+  const { toast } = useToast()
+
+  // Form state
+  const [formData, setFormData] = useState({
+    prompt: '',  // Saved instructions/template
+    generatedPost: searchParams?.get('content') || '',  // Actual post content
+    selectedPlatforms: searchParams?.get('platforms')?.split(',').filter(Boolean) || [],
+    seriesId: '',  // Associate post with a series
+    scheduleType: 'once',
+    scheduledDate: '',
+    scheduledTime: '',
+    isRecurring: false,
+    interval: 1,
+    endDate: '',
+    maxRuns: '',
+    media: searchParams?.get('imageUrl') ? [{ url: searchParams.get('imageUrl')!, type: 'image' as const, wasCompressed: undefined, originalSize: undefined, finalSize: undefined }] : [] as Array<{ url: string, type: 'image' | 'video', wasCompressed?: boolean, originalSize?: number, finalSize?: number }>
+  })
+  
+  const [savedPrompts, setSavedPrompts] = useState<Array<{ id: string, text: string, createdAt: string }>>([])
+  const [isAnalyzingImages, setIsAnalyzingImages] = useState(false)
+  const [showSavedPrompts, setShowSavedPrompts] = useState(false)
+  const [showSavePromptDialog, setShowSavePromptDialog] = useState(false)
+
+  // Team tagging state
+  interface TeamMember {
+    id: string
+    name: string
+    handle?: string | null
+    platform?: string | null
+    order: number
+  }
+
+  interface Team {
+    id: string
+    name: string
+    description?: string | null
+    members: TeamMember[]
+    order: number
+  }
+
+  const [teams, setTeams] = useState<Team[]>([])
+  const [selectedTags, setSelectedTags] = useState<string[]>([])
+  const [showTeamDialog, setShowTeamDialog] = useState(false)
+  const [showMemberDialog, setShowMemberDialog] = useState(false)
+  const [currentTeamId, setCurrentTeamId] = useState<string>('')
+  const [teamFormData, setTeamFormData] = useState({ name: '', description: '' })
+  const [memberFormData, setMemberFormData] = useState({ name: '', handle: '', platform: '' })
+
+  // Series state
+  interface PostSeries {
+    id: string
+    name: string
+    description?: string | null
+    frequency: string
+    daysOfWeek: string[]
+    timeOfDay?: string | null
+    platforms: string[]
+    startDate: string
+    endDate?: string | null
+    status: string
+    nextScheduledAt?: string | null
+    _count?: {
+      posts: number
+    }
+  }
+
+  const [series, setSeries] = useState<PostSeries[]>([])
+  const [seriesLoading, setSeriesLoading] = useState(false)
+  const [showSeriesDialog, setShowSeriesDialog] = useState(false)
+  const [editingSeries, setEditingSeries] = useState<PostSeries | null>(null)
+  const [seriesFormData, setSeriesFormData] = useState({
+    name: '',
+    description: '',
+    frequency: 'ONCE_WEEK',
+    daysOfWeek: [] as string[],
+    timeOfDay: '09:00',
+    platforms: [] as string[],
+    startDate: '',
+    endDate: ''
+  })
+
+  useEffect(() => {
+    fetchSchedules()
+    fetchProfiles()
+    fetchSavedPrompts()
+    fetchTeams()
+    fetchSeries()
+  }, [])
+
+  const fetchProfiles = async () => {
+    try {
+      const response = await fetch('/api/profiles')
+      if (response.ok) {
+        const data = await response.json()
+        setProfiles(data.profiles || [])
+        
+        // Set default profile as selected
+        const defaultProfile = data.profiles.find((p: Profile) => p.isDefault)
+        const profileToSelect = defaultProfile || data.profiles[0]
+        if (profileToSelect) {
+          setSelectedProfileId(profileToSelect.id)
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch profiles:', error)
+    }
+  }
+
+  const fetchSavedPrompts = async () => {
+    try {
+      const response = await fetch('/api/prompts')
+      if (response.ok) {
+        const data = await response.json()
+        setSavedPrompts(data.prompts || [])
+      }
+    } catch (error) {
+      console.error('Failed to fetch saved prompts:', error)
+    }
+  }
+
+  const savePrompt = async () => {
+    if (!formData.prompt.trim()) {
+      toast({
+        title: 'Error',
+        description: 'Please enter a prompt to save',
+        variant: 'destructive'
+      })
+      return
+    }
+
+    try {
+      const response = await fetch('/api/prompts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: formData.prompt })
+      })
+
+      if (response.ok) {
+        toast({
+          title: 'Prompt Saved!',
+          description: 'Your prompt has been saved for future use.'
+        })
+        fetchSavedPrompts()
+      }
+    } catch (error) {
+      console.error('Failed to save prompt:', error)
+      toast({
+        title: 'Error',
+        description: 'Failed to save prompt',
+        variant: 'destructive'
+      })
+    }
+  }
+
+  const loadPrompt = (promptText: string) => {
+    handleInputChange('prompt', promptText)
+    setShowSavedPrompts(false)
+    toast({
+      title: 'Prompt Loaded',
+      description: 'You can now edit or use this prompt.'
+    })
+  }
+
+  const deletePrompt = async (promptId: string) => {
+    try {
+      const response = await fetch(`/api/prompts/${promptId}`, {
+        method: 'DELETE'
+      })
+
+      if (response.ok) {
+        toast({
+          title: 'Prompt Deleted',
+          description: 'The prompt has been removed.'
+        })
+        fetchSavedPrompts()
+      }
+    } catch (error) {
+      console.error('Failed to delete prompt:', error)
+    }
+  }
+
+  // Team management functions
+  const fetchTeams = async () => {
+    try {
+      const response = await fetch('/api/teams')
+      if (response.ok) {
+        const data = await response.json()
+        setTeams(data.teams || [])
+      }
+    } catch (error) {
+      console.error('Failed to fetch teams:', error)
+    }
+  }
+
+  const createTeam = async () => {
+    if (!teamFormData.name.trim()) {
+      toast({
+        title: 'Error',
+        description: 'Team name is required',
+        variant: 'destructive'
+      })
+      return
+    }
+
+    try {
+      const response = await fetch('/api/teams', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(teamFormData)
+      })
+
+      if (response.ok) {
+        toast({
+          title: 'Team Created',
+          description: 'You can now add members to this team.'
+        })
+        setTeamFormData({ name: '', description: '' })
+        setShowTeamDialog(false)
+        fetchTeams()
+      } else {
+        const error = await response.json()
+        toast({
+          title: 'Error',
+          description: error.error || 'Failed to create team',
+          variant: 'destructive'
+        })
+      }
+    } catch (error) {
+      console.error('Failed to create team:', error)
+      toast({
+        title: 'Error',
+        description: 'Failed to create team',
+        variant: 'destructive'
+      })
+    }
+  }
+
+  const deleteTeam = async (teamId: string) => {
+    try {
+      const response = await fetch(`/api/teams/${teamId}`, {
+        method: 'DELETE'
+      })
+
+      if (response.ok) {
+        toast({
+          title: 'Team Deleted',
+          description: 'The team and all its members have been removed.'
+        })
+        fetchTeams()
+      }
+    } catch (error) {
+      console.error('Failed to delete team:', error)
+    }
+  }
+
+  const addMember = async () => {
+    if (!memberFormData.name.trim()) {
+      toast({
+        title: 'Error',
+        description: 'Member name is required',
+        variant: 'destructive'
+      })
+      return
+    }
+
+    try {
+      const response = await fetch(`/api/teams/${currentTeamId}/members`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(memberFormData)
+      })
+
+      if (response.ok) {
+        toast({
+          title: 'Member Added',
+          description: 'The member has been added to the team.'
+        })
+        setMemberFormData({ name: '', handle: '', platform: '' })
+        setShowMemberDialog(false)
+        fetchTeams()
+      }
+    } catch (error) {
+      console.error('Failed to add member:', error)
+      toast({
+        title: 'Error',
+        description: 'Failed to add member',
+        variant: 'destructive'
+      })
+    }
+  }
+
+  const deleteMember = async (teamId: string, memberId: string) => {
+    try {
+      const response = await fetch(`/api/teams/${teamId}/members/${memberId}`, {
+        method: 'DELETE'
+      })
+
+      if (response.ok) {
+        toast({
+          title: 'Member Removed',
+          description: 'The member has been removed from the team.'
+        })
+        fetchTeams()
+      }
+    } catch (error) {
+      console.error('Failed to delete member:', error)
+    }
+  }
+
+  // Series management functions
+  const fetchSeries = async () => {
+    setSeriesLoading(true)
+    try {
+      const response = await fetch('/api/series')
+      if (response.ok) {
+        const data = await response.json()
+        setSeries(data.series || [])
+      }
+    } catch (error) {
+      console.error('Failed to fetch series:', error)
+    } finally {
+      setSeriesLoading(false)
+    }
+  }
+
+  const createOrUpdateSeries = async () => {
+    if (!seriesFormData.name.trim()) {
+      toast({
+        title: 'Error',
+        description: 'Series name is required',
+        variant: 'destructive'
+      })
+      return
+    }
+
+    if (seriesFormData.daysOfWeek.length === 0) {
+      toast({
+        title: 'Error',
+        description: 'Please select at least one day',
+        variant: 'destructive'
+      })
+      return
+    }
+
+    if (seriesFormData.platforms.length === 0) {
+      toast({
+        title: 'Error',
+        description: 'Please select at least one platform',
+        variant: 'destructive'
+      })
+      return
+    }
+
+    if (!seriesFormData.startDate) {
+      toast({
+        title: 'Error',
+        description: 'Start date is required',
+        variant: 'destructive'
+      })
+      return
+    }
+
+    try {
+      const url = editingSeries ? `/api/series/${editingSeries.id}` : '/api/series'
+      const method = editingSeries ? 'PATCH' : 'POST'
+
+      const response = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(seriesFormData)
+      })
+
+      if (response.ok) {
+        toast({
+          title: editingSeries ? 'Series Updated' : 'Series Created',
+          description: editingSeries 
+            ? 'Series has been updated successfully'
+            : 'You can now associate posts with this series.'
+        })
+        setSeriesFormData({
+          name: '',
+          description: '',
+          frequency: 'ONCE_WEEK',
+          daysOfWeek: [],
+          timeOfDay: '09:00',
+          platforms: [],
+          startDate: '',
+          endDate: ''
+        })
+        setEditingSeries(null)
+        setShowSeriesDialog(false)
+        fetchSeries()
+      } else {
+        const error = await response.json()
+        toast({
+          title: 'Error',
+          description: error.error || 'Failed to save series',
+          variant: 'destructive'
+        })
+      }
+    } catch (error) {
+      console.error('Failed to save series:', error)
+      toast({
+        title: 'Error',
+        description: 'Failed to save series',
+        variant: 'destructive'
+      })
+    }
+  }
+
+  const deleteSeries = async (seriesId: string) => {
+    if (!confirm('Are you sure you want to delete this series? Posts associated with it will remain but will lose their series association.')) {
+      return
+    }
+
+    try {
+      const response = await fetch(`/api/series/${seriesId}`, {
+        method: 'DELETE'
+      })
+
+      if (response.ok) {
+        toast({
+          title: 'Series Deleted',
+          description: 'The series has been removed.'
+        })
+        fetchSeries()
+      }
+    } catch (error) {
+      console.error('Failed to delete series:', error)
+      toast({
+        title: 'Error',
+        description: 'Failed to delete series',
+        variant: 'destructive'
+      })
+    }
+  }
+
+  const formatFrequency = (freq: string) => {
+    const map: { [key: string]: string } = {
+      'ONCE_WEEK': 'Once per week',
+      'TWICE_WEEK': 'Twice per week',
+      'THREE_WEEK': 'Three times per week',
+      'CUSTOM': 'Custom schedule'
+    }
+    return map[freq] || freq
+  }
+
+  const tagPerson = (name: string, handle?: string | null) => {
+    const tag = handle ? `@${handle}` : name
+    if (!selectedTags.includes(tag)) {
+      setSelectedTags([...selectedTags, tag])
+      // Add to generated post content
+      const currentPost = formData.generatedPost.trim()
+      const updatedPost = currentPost ? `${currentPost} ${tag}` : tag
+      handleInputChange('generatedPost', updatedPost)
+      
+      toast({
+        title: 'Person Tagged',
+        description: `${name} has been added to the post`
+      })
+    }
+  }
+
+  const tagWholeTeam = (team: Team) => {
+    const newTags: string[] = []
+    let tagsText = ''
+    
+    team.members.forEach(member => {
+      const tag = member.handle ? `@${member.handle}` : member.name
+      if (!selectedTags.includes(tag)) {
+        newTags.push(tag)
+        tagsText += ` ${tag}`
+      }
+    })
+
+    if (newTags.length > 0) {
+      setSelectedTags([...selectedTags, ...newTags])
+      // Add to generated post content
+      const currentPost = formData.generatedPost.trim()
+      const updatedPost = currentPost ? `${currentPost}${tagsText}` : tagsText.trim()
+      handleInputChange('generatedPost', updatedPost)
+      
+      toast({
+        title: 'Team Tagged',
+        description: `All ${newTags.length} members of ${team.name} have been tagged`
+      })
+    }
+  }
+
+  const removeTag = (tag: string) => {
+    setSelectedTags(selectedTags.filter(t => t !== tag))
+    // Remove from generated post content
+    const updatedPost = formData.generatedPost.replace(new RegExp(`\\s*${tag}\\s*`, 'g'), ' ').trim()
+    handleInputChange('generatedPost', updatedPost)
+  }
+
+  // Get platforms available for the selected profile
+  const getAvailablePlatforms = () => {
+    if (!selectedProfileId) return []
+    
+    const selectedProfile = profiles.find(p => p.id === selectedProfileId)
+    if (!selectedProfile || !selectedProfile.platformSettings) return []
+    
+    // Map platform settings to our platform list format
+    const connectedPlatforms = selectedProfile.platformSettings
+      .filter((ps: any) => ps.isActive !== false)
+      .map((ps: any) => {
+        const platformName = ps.platform.toLowerCase()
+        // Map the platform name to our standard platform IDs
+        return platforms.find(p => p.id === platformName)
+      })
+      .filter(Boolean) as typeof platforms
+    
+    return connectedPlatforms
+  }
+
+  const fetchSchedules = async () => {
+    setIsLoading(true)
+    try {
+      const response = await fetch('/api/schedules')
+      if (response.ok) {
+        const data = await response.json()
+        setSchedules(data.schedules || [])
+      }
+    } catch (error) {
+      console.error('Failed to fetch schedules:', error)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handlePlatformToggle = (platformId: string) => {
+    setFormData(prev => ({
+      ...prev,
+      selectedPlatforms: prev.selectedPlatforms.includes(platformId)
+        ? prev.selectedPlatforms.filter(id => id !== platformId)
+        : [...prev.selectedPlatforms, platformId]
+    }))
+  }
+
+  const handleInputChange = (field: string, value: any) => {
+    setFormData(prev => ({
+      ...prev,
+      [field]: value
+    }))
+  }
+
+  const analyzeImagesWithAI = async () => {
+    if (formData.media.length === 0) {
+      toast({
+        title: 'No Images',
+        description: 'Please upload at least one image to analyze',
+        variant: 'destructive'
+      })
+      return
+    }
+
+    setIsAnalyzingImages(true)
+    try {
+      const response = await fetch('/api/analyze-images', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mediaUrls: formData.media.map(m => m.url),
+          currentPrompt: formData.prompt
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to analyze images')
+      }
+
+      const data = await response.json()
+      if (data.success && data.suggestions) {
+        // Append AI suggestions to current prompt
+        const enhancedPrompt = formData.prompt.trim()
+          ? `${formData.prompt}\n\n[AI Analysis]: ${data.suggestions}`
+          : data.suggestions
+        
+        handleInputChange('prompt', enhancedPrompt)
+        toast({
+          title: 'Images Analyzed!',
+          description: 'AI has added insights about your images to help create better content.'
+        })
+      }
+    } catch (error) {
+      console.error('Image analysis error:', error)
+      toast({
+        title: 'Error',
+        description: 'Failed to analyze images',
+        variant: 'destructive'
+      })
+    } finally {
+      setIsAnalyzingImages(false)
+    }
+  }
+
+  const polishPrompt = async () => {
+    if (!formData.prompt.trim()) {
+      toast({
+        title: 'Error',
+        description: 'Please enter some instructions to polish',
+        variant: 'destructive'
+      })
+      return
+    }
+
+    setIsGenerating(true)
+    try {
+      const response = await fetch('/api/polish-prompt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          rawText: formData.prompt,
+          platforms: formData.selectedPlatforms,
+          hasMedia: formData.media.length > 0,
+          mediaTypes: formData.media.map(m => m.type),
+          isInstructions: true  // Flag to indicate we're polishing instructions, not generating a post
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to polish prompt')
+      }
+
+      const reader = response.body?.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader?.read() ?? { done: true, value: undefined }
+        if (done) break
+
+        const chunk = decoder.decode(value, { stream: true })
+        const lines = chunk.split('\n')
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6)
+            try {
+              const parsed = JSON.parse(data)
+              if (parsed.status === 'streaming') {
+                buffer += parsed.content
+                handleInputChange('prompt', buffer)
+              } else if (parsed.status === 'completed') {
+                handleInputChange('prompt', parsed.content)
+                // Show dialog asking if they want to save the prompt
+                setShowSavePromptDialog(true)
+                return
+              }
+            } catch (e) {
+              // Skip invalid JSON
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Polish error:', error)
+      toast({
+        title: 'Error',
+        description: 'Failed to polish instructions. Please try again.',
+        variant: 'destructive'
+      })
+    } finally {
+      setIsGenerating(false)
+    }
+  }
+
+  const generatePost = async () => {
+    if (!formData.prompt.trim()) {
+      toast({
+        title: 'Error',
+        description: 'Please enter prompt instructions first',
+        variant: 'destructive'
+      })
+      return
+    }
+
+    setIsGenerating(true)
+    try {
+      const response = await fetch('/api/generate-content', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: formData.prompt,
+          platforms: formData.selectedPlatforms,
+          hasMedia: formData.media.length > 0,
+          mediaTypes: formData.media.map(m => m.type),
+          mediaUrls: formData.media.map(m => m.url)
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to generate post')
+      }
+
+      const reader = response.body?.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader?.read() ?? { done: true, value: undefined }
+        if (done) break
+
+        const chunk = decoder.decode(value, { stream: true })
+        const lines = chunk.split('\n')
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6)
+            try {
+              const parsed = JSON.parse(data)
+              if (parsed.status === 'streaming') {
+                buffer += parsed.content
+                handleInputChange('generatedPost', buffer)
+              } else if (parsed.status === 'completed') {
+                handleInputChange('generatedPost', parsed.content)
+                toast({
+                  title: 'Post Generated! ✨',
+                  description: 'Your post is ready to publish or schedule.',
+                })
+                return
+              }
+            } catch (e) {
+              // Skip invalid JSON
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Generate error:', error)
+      toast({
+        title: 'Error',
+        description: 'Failed to generate post. Please try again.',
+        variant: 'destructive'
+      })
+    } finally {
+      setIsGenerating(false)
+    }
+  }
+
+  const schedulePost = async (publishNow = false) => {
+    if (!formData.generatedPost.trim()) {
+      toast({
+        title: 'Error',
+        description: 'Please generate your post content first',
+        variant: 'destructive'
+      })
+      return
+    }
+
+    if (formData.selectedPlatforms.length === 0) {
+      toast({
+        title: 'Error',
+        description: 'Please select at least one platform',
+        variant: 'destructive'
+      })
+      return
+    }
+
+    // Check if Instagram is selected
+    if (formData.selectedPlatforms.includes('instagram')) {
+      if (!formData.media || formData.media.length === 0) {
+        toast({
+          title: 'Instagram Requires Media',
+          description: 'Instagram posts require at least one image or video. Please upload media or deselect Instagram.',
+          variant: 'destructive'
+        })
+        return
+      }
+    }
+
+    // Check if TikTok or YouTube are selected (they require video)
+    const videoOnlyPlatforms = formData.selectedPlatforms.filter(p => 
+      p === 'tiktok' || p === 'youtube'
+    )
+    
+    if (videoOnlyPlatforms.length > 0) {
+      if (!formData.media || formData.media.length === 0) {
+        toast({
+          title: 'Video Required',
+          description: `${videoOnlyPlatforms.map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' and ')} require video content. Please upload a video or deselect these platforms.`,
+          variant: 'destructive'
+        })
+        return
+      }
+      
+      // Check if at least one media item is a video
+      const hasVideo = formData.media.some(m => m.type === 'video')
+      
+      if (!hasVideo) {
+        toast({
+          title: 'Video Required',
+          description: `${videoOnlyPlatforms.map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' and ')} require video content. Please upload a video file.`,
+          variant: 'destructive'
+        })
+        return
+      }
+    }
+
+    if (!publishNow && (!formData.scheduledDate || !formData.scheduledTime)) {
+      toast({
+        title: 'Error',
+        description: 'Please set a date and time for scheduling',
+        variant: 'destructive'
+      })
+      return
+    }
+
+    setIsSubmitting(true)
+
+    try {
+      if (publishNow) {
+        // Post immediately via Late API
+        const response = await fetch('/api/late/post', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            profileId: selectedProfileId,
+            content: formData.generatedPost,
+            platforms: formData.selectedPlatforms,
+            mediaUrls: formData.media.map(m => m.url)
+          })
+        })
+
+        const result = await response.json()
+        if (result.success) {
+          toast({
+            title: result.warning ? 'Partially Posted' : 'Posted Successfully!',
+            description: result.warning || 'Your content has been published to selected platforms.',
+            variant: result.warning ? 'default' : 'default'
+          })
+          // Reset form (keep prompt, clear generated post)
+          setFormData(prev => ({
+            ...prev,
+            generatedPost: '',
+            media: []
+          }))
+        } else {
+          throw new Error(result.message || 'Failed to post')
+        }
+      } else {
+        // Create schedule
+        const scheduledDateTime = new Date(`${formData.scheduledDate}T${formData.scheduledTime}`)
+        
+        const response = await fetch('/api/schedules', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: 'Scheduled Post',
+            content: formData.generatedPost,
+            platforms: formData.selectedPlatforms,
+            mediaUrls: formData.media.map(m => m.url),
+            scheduleType: formData.scheduleType,
+            scheduledAt: scheduledDateTime.toISOString(),
+            timezone: 'UTC',
+            isRecurring: formData.isRecurring,
+            interval: formData.isRecurring ? parseInt(formData.interval.toString()) : null,
+            endDate: formData.endDate ? new Date(formData.endDate).toISOString() : null,
+            maxRuns: formData.maxRuns ? parseInt(formData.maxRuns.toString()) : null,
+            seriesId: formData.seriesId || null
+          })
+        })
+
+        const result = await response.json()
+        if (result.success) {
+          toast({
+            title: 'Scheduled Successfully!',
+            description: 'Your post has been scheduled.'
+          })
+          fetchSchedules()
+          setActiveTab('manage')
+          // Reset form
+          setFormData(prev => ({
+            ...prev,
+            prompt: '',
+            scheduledDate: '',
+            scheduledTime: ''
+          }))
+        } else {
+          throw new Error(result.message || 'Failed to schedule')
+        }
+      }
+    } catch (error) {
+      console.error('Schedule/Post error:', error)
+      toast({
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Operation failed',
+        variant: 'destructive'
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const cancelSchedule = async (scheduleId: string) => {
+    try {
+      const response = await fetch(`/api/schedules/${scheduleId}`, {
+        method: 'DELETE'
+      })
+
+      if (response.ok) {
+        toast({
+          title: 'Schedule Cancelled',
+          description: 'The scheduled post has been cancelled.'
+        })
+        fetchSchedules()
+      }
+    } catch (error) {
+      console.error('Cancel schedule error:', error)
+      toast({
+        title: 'Error',
+        description: 'Failed to cancel schedule',
+        variant: 'destructive'
+      })
+    }
+  }
+
+
+
+  const formatDateTime = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString() + ' at ' + 
+           new Date(dateString).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
+  }
+
+  const getPlatformIcon = (platform: string) => {
+    const platformData = platforms.find(p => p.id === platform)
+    const IconComponent = platformData?.icon || MessageSquare
+    return <IconComponent className="w-4 h-4" />
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900">Schedule Posts</h1>
+        <p className="text-gray-600">Create and manage your social media posting schedule</p>
+      </div>
+
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+        <TabsList className="grid w-full max-w-2xl grid-cols-4">
+          <TabsTrigger value="create">Create Schedule</TabsTrigger>
+          <TabsTrigger value="series">Series</TabsTrigger>
+          <TabsTrigger value="manage">Manage ({schedules.length})</TabsTrigger>
+          <TabsTrigger value="bulk">Bulk Scheduling</TabsTrigger>
+        </TabsList>
+
+        {/* Create Schedule Tab */}
+        <TabsContent value="create" className="space-y-6">
+          <div className="grid gap-6 lg:grid-cols-2">
+            {/* Team Tagging Section - MOVED TO TOP */}
+            <Card className="shadow-sm">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle>Tag People</CardTitle>
+                    <CardDescription>
+                      Organize and tag people by teams
+                    </CardDescription>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowTeamDialog(true)}
+                  >
+                    <Plus className="w-4 h-4 mr-2" />
+                    New Team
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {teams.length === 0 ? (
+                  <div className="text-center py-8 text-gray-500">
+                    <MessageSquare className="w-8 h-8 mx-auto mb-3 opacity-50" />
+                    <p className="text-sm">No teams created yet</p>
+                    <p className="text-xs">Create a team to organize people for easy tagging</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3 max-h-96 overflow-y-auto">
+                    {teams.map((team) => (
+                      <div key={team.id} className="border rounded-lg p-3 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1">
+                            <h4 className="font-medium text-sm">{team.name}</h4>
+                            {team.description && (
+                              <p className="text-xs text-gray-500">{team.description}</p>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                setCurrentTeamId(team.id)
+                                setShowMemberDialog(true)
+                              }}
+                              className="text-xs h-7"
+                            >
+                              <Plus className="w-3 h-3 mr-1" />
+                              Add
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => deleteTeam(team.id)}
+                              className="h-7 w-7 p-0"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </Button>
+                          </div>
+                        </div>
+
+                        {team.members.length === 0 ? (
+                          <p className="text-xs text-gray-500 italic">No members yet</p>
+                        ) : (
+                          <>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                variant="default"
+                                size="sm"
+                                onClick={() => tagWholeTeam(team)}
+                                className="text-xs h-7 bg-blue-600 hover:bg-blue-700"
+                              >
+                                Tag Whole Team ({team.members.length})
+                              </Button>
+                            </div>
+                            <div className="space-y-1">
+                              {team.members.map((member) => (
+                                <div
+                                  key={member.id}
+                                  className="flex items-center justify-between p-2 bg-gray-50 rounded hover:bg-gray-100 transition-colors"
+                                >
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-sm font-medium truncate">
+                                        {member.name}
+                                      </span>
+                                      {member.handle && (
+                                        <span className="text-xs text-gray-500">
+                                          @{member.handle}
+                                        </span>
+                                      )}
+                                    </div>
+                                    {member.platform && (
+                                      <Badge variant="secondary" className="text-xs mt-0.5">
+                                        {member.platform}
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-1">
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => tagPerson(member.name, member.handle)}
+                                      className="h-7 text-xs"
+                                    >
+                                      Tag
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => deleteMember(team.id, member.id)}
+                                      className="h-7 w-7 p-0"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                    </Button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Currently Tagged */}
+                {selectedTags.length > 0 && (
+                  <div className="pt-4 border-t">
+                    <Label className="text-xs font-medium text-gray-700">Currently Tagged</Label>
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {selectedTags.map((tag) => (
+                        <Badge
+                          key={tag}
+                          variant="secondary"
+                          className="cursor-pointer hover:bg-red-100"
+                          onClick={() => removeTag(tag)}
+                        >
+                          {tag}
+                          <span className="ml-1">×</span>
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Content Form */}
+            <Card className="shadow-sm">
+              <CardHeader>
+                <CardTitle>Prompt Instructions</CardTitle>
+                <CardDescription>
+                  Create reusable prompt instructions for generating posts
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Prompt Box */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="prompt">Prompt Instructions *</Label>
+                    <div className="flex gap-2">
+                      {savedPrompts.length > 0 && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setShowSavedPrompts(!showSavedPrompts)}
+                          className="text-xs"
+                        >
+                          📋 Load Saved
+                        </Button>
+                      )}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={savePrompt}
+                        className="text-xs"
+                        disabled={!formData.prompt.trim()}
+                      >
+                        💾 Save
+                      </Button>
+                    </div>
+                  </div>
+
+                  {showSavedPrompts && savedPrompts.length > 0 && (
+                    <Card className="border-purple-200 bg-purple-50 mb-2">
+                      <CardContent className="pt-4">
+                        <div className="space-y-2 max-h-48 overflow-y-auto">
+                          {savedPrompts.map((prompt) => (
+                            <div
+                              key={prompt.id}
+                              className="flex items-start justify-between p-2 bg-white rounded border hover:border-purple-300 cursor-pointer"
+                              onClick={() => loadPrompt(prompt.text)}
+                            >
+                              <p className="text-sm flex-1 line-clamp-2">{prompt.text}</p>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  deletePrompt(prompt.id)
+                                }}
+                                className="ml-2"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  <Textarea
+                    id="prompt"
+                    placeholder="Enter your prompt instructions here...
+
+Example: 
+Create engaging basketball content that:
+- Celebrates team victories and highlights key players
+- Includes motivational messaging for young athletes
+- Uses relevant hashtags like #Basketball #Teamwork #Victory
+- Maintains an energetic and inspiring tone"
+                    value={formData.prompt}
+                    onChange={(e) => handleInputChange('prompt', e.target.value)}
+                    rows={8}
+                    className="resize-none font-mono"
+                  />
+
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      onClick={polishPrompt}
+                      disabled={isGenerating || !formData.prompt.trim()}
+                      className="flex-1 bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600"
+                    >
+                      {isGenerating ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Polishing...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-4 h-4 mr-2" />
+                          AI Polish
+                        </>
+                      )}
+                    </Button>
+
+                    {formData.media.length > 0 && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={analyzeImagesWithAI}
+                        disabled={isAnalyzingImages}
+                        className="border-2 border-green-300 hover:bg-green-50"
+                      >
+                        {isAnalyzingImages ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Analyzing...
+                          </>
+                        ) : (
+                          <>
+                            👁️ Analyze Images
+                          </>
+                        )}
+                      </Button>
+                    )}
+                  </div>
+
+                  <Alert className="bg-blue-50 border-blue-200">
+                    <Sparkles className="h-4 w-4 text-blue-600" />
+                    <AlertDescription className="text-sm text-blue-800">
+                      Write your <strong>prompt instructions</strong> that will be used for ALL posts. 
+                      Click <strong>AI Polish</strong> to refine your instructions, then <strong>Generate Post</strong> to create actual post content.
+                    </AlertDescription>
+                  </Alert>
+                </div>
+
+                {/* Generated Post Section */}
+                <div className="space-y-2 pt-4 border-t">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="generatedPost">Generated Post</Label>
+                    <Button
+                      type="button"
+                      onClick={generatePost}
+                      disabled={isGenerating || !formData.prompt.trim()}
+                      size="sm"
+                      className="bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600"
+                    >
+                      {isGenerating ? (
+                        <>
+                          <Loader2 className="w-3 h-3 mr-2 animate-spin" />
+                          Generating...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-3 h-3 mr-2" />
+                          Generate Post
+                        </>
+                      )}
+                    </Button>
+                  </div>
+
+                  <Textarea
+                    id="generatedPost"
+                    placeholder="Your generated post will appear here... Click 'Generate Post' to create content based on your prompt instructions and uploaded media."
+                    value={formData.generatedPost}
+                    onChange={(e) => handleInputChange('generatedPost', e.target.value)}
+                    rows={8}
+                    className="resize-none"
+                  />
+
+                  <Alert className="bg-green-50 border-green-200">
+                    <CheckCircle className="h-4 w-4 text-green-600" />
+                    <AlertDescription className="text-sm text-green-800">
+                      This is the <strong>actual post content</strong> that will be published. You can edit it before posting.
+                    </AlertDescription>
+                  </Alert>
+                </div>
+
+                {/* Media Upload Section */}
+                <div className="space-y-2">
+                  <Label>Media</Label>
+                  {formData.selectedPlatforms.includes('instagram') && (
+                    <Alert className="mb-2">
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertDescription>
+                        Instagram posts require at least one image or video
+                      </AlertDescription>
+                    </Alert>
+                  )}
+                  
+                  {formData.media.length > 0 ? (
+                    <div className="space-y-2">
+                      <div className="grid grid-cols-2 gap-2">
+                        {formData.media.map((media, index) => (
+                          <div key={index} className="relative group">
+                            <div className="relative aspect-square bg-gray-100 rounded-lg overflow-hidden border-2 border-gray-200">
+                              {media.type === 'video' ? (
+                                <video
+                                  src={media.url}
+                                  className="w-full h-full object-cover"
+                                  controls
+                                  preload="metadata"
+                                />
+                              ) : (
+                                <img
+                                  src={media.url}
+                                  alt={`Media ${index + 1}`}
+                                  className="w-full h-full object-cover"
+                                />
+                              )}
+                              {media.wasCompressed && (
+                                <Badge className="absolute bottom-2 left-2 bg-green-500 text-white text-xs">
+                                  ✓ Compressed for X
+                                </Badge>
+                              )}
+                              {media.finalSize && (
+                                <Badge variant="secondary" className="absolute bottom-2 right-2 text-xs">
+                                  {(media.finalSize / (1024 * 1024)).toFixed(1)} MB
+                                </Badge>
+                              )}
+                              <Button
+                                variant="destructive"
+                                size="sm"
+                                className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                                onClick={() => {
+                                  const newMedia = formData.media.filter((_, i) => i !== index)
+                                  handleInputChange('media', newMedia)
+                                }}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => document.getElementById('media-upload')?.click()}
+                      >
+                        <Plus className="w-4 h-4 mr-2" />
+                        Add More Media
+                      </Button>
+                    </div>
+                  ) : (
+                    <div 
+                      className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer hover:border-gray-400 transition-colors"
+                      onClick={() => document.getElementById('media-upload')?.click()}
+                    >
+                      <Plus className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                      <p className="text-sm text-gray-600">Click to upload media</p>
+                      <p className="text-xs text-gray-500 mt-1">Images or videos</p>
+                    </div>
+                  )}
+                  
+                  <input
+                    id="media-upload"
+                    type="file"
+                    accept="image/*,video/*"
+                    multiple
+                    className="hidden"
+                    onChange={async (e) => {
+                      const files = Array.from(e.target.files || [])
+                      if (files.length === 0) return
+
+                      // Upload each file (with automatic compression for large videos)
+                      const uploadPromises = files.map(async (file) => {
+                        let fileToUpload = file
+                        const originalSizeMB = (file.size / (1024 * 1024)).toFixed(2)
+                        
+                        // Check if video compression is needed
+                        if (needsCompression(file)) {
+                          try {
+                            setIsCompressing(true)
+                            setCompressionFileName(file.name)
+                            setCompressionProgress(0)
+                            
+                            toast({
+                              title: 'Compressing Video',
+                              description: `${file.name} (${originalSizeMB}MB) is being compressed for faster upload...`
+                            })
+                            
+                            fileToUpload = await compressVideo(file, {
+                              targetSizeMB: 4,
+                              maxSizeMB: 4.5,
+                              onProgress: (progress) => {
+                                setCompressionProgress(progress)
+                              }
+                            })
+                            
+                            const compressedSizeMB = (fileToUpload.size / (1024 * 1024)).toFixed(2)
+                            
+                            toast({
+                              title: 'Compression Complete',
+                              description: `Reduced from ${originalSizeMB}MB to ${compressedSizeMB}MB`
+                            })
+                            
+                            setIsCompressing(false)
+                          } catch (error) {
+                            console.error('Compression failed:', error)
+                            setIsCompressing(false)
+                            
+                            // If compression fails, ask user if they want to upload without compression
+                            toast({
+                              title: 'Compression Failed',
+                              description: `Unable to compress video. The file (${originalSizeMB}MB) may be too large for some platforms. Uploading original file...`,
+                              variant: 'default'
+                            })
+                            
+                            // Continue with original file
+                            fileToUpload = file
+                          }
+                        }
+                        
+                        // Upload the file (compressed or original)
+                        const fileSizeMB = (fileToUpload.size / (1024 * 1024)).toFixed(2)
+                        console.log('Uploading file:', fileToUpload.name, 'Size:', `${fileSizeMB}MB`, 'Type:', fileToUpload.type)
+                        
+                        const uploadFormData = new FormData()
+                        uploadFormData.append('file', fileToUpload)
+                        
+                        const response = await fetch('/api/late/media', {
+                          method: 'POST',
+                          body: uploadFormData
+                        })
+                        
+                        console.log('Upload response status:', response.status)
+                        
+                        if (!response.ok) {
+                          const errorData = await response.json().catch(() => ({ error: 'Unknown error' }))
+                          console.error('Upload failed:', errorData)
+                          throw new Error(errorData.error || errorData.details || 'Upload failed')
+                        }
+                        
+                        const data = await response.json()
+                        console.log('Upload success:', data)
+                        
+                        if (!data.success || !data.url) {
+                          throw new Error(data.error || 'No URL returned from upload')
+                        }
+                        
+                        // Show compression message if image was auto-compressed
+                        if (data.wasCompressed && data.message) {
+                          toast({
+                            title: '🔄 Image Auto-Compressed',
+                            description: data.message,
+                            duration: 5000
+                          })
+                        }
+                        
+                        const isVideo = fileToUpload.type.startsWith('video/')
+                        
+                        return {
+                          url: data.url,
+                          type: isVideo ? 'video' as const : 'image' as const,
+                          wasCompressed: data.wasCompressed,
+                          originalSize: data.originalSize,
+                          finalSize: data.fileSize
+                        }
+                      })
+
+                      try {
+                        const mediaItems = await Promise.all(uploadPromises)
+                        handleInputChange('media', [...formData.media, ...mediaItems])
+                        
+                        // Check if any images were compressed
+                        const compressedCount = mediaItems.filter(m => m.wasCompressed).length
+                        const totalCount = files.length
+                        
+                        toast({
+                          title: 'Success',
+                          description: compressedCount > 0 
+                            ? `${totalCount} file(s) uploaded successfully! ${compressedCount} image(s) auto-compressed for Twitter compatibility ✨`
+                            : `${totalCount} file(s) uploaded successfully!`
+                        })
+                      } catch (error) {
+                        console.error('Upload error:', error)
+                        const errorMessage = error instanceof Error ? error.message : 'Failed to upload media'
+                        toast({
+                          title: 'Upload Failed',
+                          description: errorMessage,
+                          variant: 'destructive'
+                        })
+                      }
+                      
+                      e.target.value = ''
+                    }}
+                  />
+                </div>
+
+                {/* Profile Selection - ALWAYS SHOW */}
+                <div className="space-y-2">
+                  <Label htmlFor="profile-select">Post from Profile *</Label>
+                  {profiles.length === 0 ? (
+                    <Alert>
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertDescription>
+                        No profiles found. Please set up a profile in Settings first.
+                      </AlertDescription>
+                    </Alert>
+                  ) : (
+                    <>
+                      <Select value={selectedProfileId} onValueChange={(value) => {
+                        setSelectedProfileId(value)
+                        // Clear selected platforms when switching profiles
+                        setFormData(prev => ({ ...prev, selectedPlatforms: [] }))
+                      }}>
+                        <SelectTrigger id="profile-select">
+                          <SelectValue placeholder="Select a profile" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {profiles.map((profile) => (
+                            <SelectItem key={profile.id} value={profile.id}>
+                              <div className="flex items-center justify-between w-full">
+                                <span className="font-medium">{profile.name}</span>
+                                {profile.isDefault && (
+                                  <Badge variant="secondary" className="ml-2 text-xs">Default</Badge>
+                                )}
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-gray-500">
+                        Each profile has different social media accounts connected
+                      </p>
+                    </>
+                  )}
+                </div>
+
+                {/* Platform Selection - FILTERED BY PROFILE */}
+                <div className="space-y-2">
+                  <Label>Target Platforms *</Label>
+                  {!selectedProfileId ? (
+                    <Alert>
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertDescription>
+                        Please select a profile first to see available platforms
+                      </AlertDescription>
+                    </Alert>
+                  ) : getAvailablePlatforms().length === 0 ? (
+                    <Alert>
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertDescription>
+                        No platforms connected to this profile. Please add platforms in Settings → Social Accounts.
+                      </AlertDescription>
+                    </Alert>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-2 gap-2">
+                        {getAvailablePlatforms().map((platform) => (
+                          <div
+                            key={platform.id}
+                            className={`flex items-center space-x-2 p-3 border rounded-lg cursor-pointer transition-colors ${
+                              formData.selectedPlatforms.includes(platform.id)
+                                ? 'bg-blue-50 border-blue-300'
+                                : 'hover:bg-gray-50'
+                            }`}
+                            onClick={() => handlePlatformToggle(platform.id)}
+                          >
+                            <Checkbox 
+                              checked={formData.selectedPlatforms.includes(platform.id)}
+                              onClick={(e) => e.stopPropagation()}
+                              onCheckedChange={() => handlePlatformToggle(platform.id)}
+                            />
+                            <platform.icon className="w-4 h-4" />
+                            <span className="text-sm">{platform.label}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-xs text-gray-500">
+                        Only showing platforms connected to the selected profile
+                      </p>
+                    </>
+                  )}
+                </div>
+
+                {/* Series Selection */}
+                <div className="space-y-2">
+                  <Label>Associate with Series (Optional)</Label>
+                  <Select 
+                    value={formData.seriesId || 'none'} 
+                    onValueChange={(value) => handleInputChange('seriesId', value === 'none' ? '' : value)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="No series (manual schedule)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">No series (manual schedule)</SelectItem>
+                      {series.filter(s => s.status === 'ACTIVE').map((s) => (
+                        <SelectItem key={s.id} value={s.id}>
+                          {s.name} - {formatFrequency(s.frequency)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-gray-500">
+                    Associating with a series will automatically schedule this post according to the series schedule
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Scheduling Options */}
+            <Card className="shadow-sm">
+              <CardHeader>
+                <CardTitle>Schedule Settings</CardTitle>
+                <CardDescription>
+                  Configure when and how often to post
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label>Schedule Type</Label>
+                  <Select value={formData.scheduleType} onValueChange={(value) => handleInputChange('scheduleType', value)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {scheduleTypes.map((type) => (
+                        <SelectItem key={type.id} value={type.id}>
+                          <div>
+                            <div className="font-medium">{type.label}</div>
+                            <div className="text-xs text-gray-500">{type.description}</div>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="scheduledDate">Date *</Label>
+                    <Input
+                      id="scheduledDate"
+                      type="date"
+                      value={formData.scheduledDate}
+                      onChange={(e) => handleInputChange('scheduledDate', e.target.value)}
+                      min={new Date().toISOString().split('T')[0]}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="scheduledTime">Time *</Label>
+                    <Input
+                      id="scheduledTime"
+                      type="time"
+                      value={formData.scheduledTime}
+                      onChange={(e) => handleInputChange('scheduledTime', e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                {formData.scheduleType !== 'once' && (
+                  <div className="space-y-4 p-4 bg-blue-50 rounded-lg">
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id="recurring"
+                        checked={formData.isRecurring}
+                        onCheckedChange={(checked) => handleInputChange('isRecurring', checked)}
+                      />
+                      <Label htmlFor="recurring">Enable recurring posts</Label>
+                    </div>
+
+                    {formData.isRecurring && (
+                      <>
+                        {formData.scheduleType === 'custom' && (
+                          <div className="space-y-2">
+                            <Label htmlFor="interval">Repeat every (days)</Label>
+                            <Input
+                              id="interval"
+                              type="number"
+                              min="1"
+                              value={formData.interval}
+                              onChange={(e) => handleInputChange('interval', parseInt(e.target.value))}
+                            />
+                          </div>
+                        )}
+
+                        <div className="space-y-2">
+                          <Label htmlFor="endDate">End Date (Optional)</Label>
+                          <Input
+                            id="endDate"
+                            type="date"
+                            value={formData.endDate}
+                            onChange={(e) => handleInputChange('endDate', e.target.value)}
+                            min={formData.scheduledDate}
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="maxRuns">Max Posts (Optional)</Label>
+                          <Input
+                            id="maxRuns"
+                            type="number"
+                            min="1"
+                            placeholder="Leave empty for unlimited"
+                            value={formData.maxRuns}
+                            onChange={(e) => handleInputChange('maxRuns', e.target.value)}
+                          />
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                <div className="flex space-x-3 pt-4">
+                  <Button 
+                    onClick={() => schedulePost(false)}
+                    disabled={isSubmitting}
+                    className="flex-1"
+                  >
+                    <Calendar className="w-4 h-4 mr-2" />
+                    Schedule Post
+                  </Button>
+                  <Button 
+                    variant="outline"
+                    onClick={() => schedulePost(true)}
+                    disabled={isSubmitting}
+                  >
+                    <Send className="w-4 h-4 mr-2" />
+                    Post Now
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+
+        {/* Series Management Tab */}
+        <TabsContent value="series">
+          <Card className="shadow-sm">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>Post Series</CardTitle>
+                  <CardDescription>
+                    Create series with recurring schedules and associate posts with them
+                  </CardDescription>
+                </div>
+                <Button onClick={() => setShowSeriesDialog(true)}>
+                  <Plus className="w-4 h-4 mr-2" />
+                  New Series
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {seriesLoading ? (
+                <div className="text-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                </div>
+              ) : series.length === 0 ? (
+                <div className="text-center py-12 text-gray-500">
+                  <Calendar className="w-8 h-8 mx-auto mb-3 opacity-50" />
+                  <p>No series yet</p>
+                  <p className="text-sm mt-2">
+                    Create a series to automate recurring posts on a schedule
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {series.map((s) => (
+                    <div
+                      key={s.id}
+                      className="border rounded-lg p-4 hover:bg-gray-50 transition-colors"
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center space-x-2 mb-2">
+                            <h3 className="font-medium">{s.name}</h3>
+                            <Badge 
+                              variant={s.status === 'ACTIVE' ? 'default' : 'secondary'}
+                              className="text-xs"
+                            >
+                              {s.status}
+                            </Badge>
+                            <Badge variant="outline" className="text-xs">
+                              {s._count?.posts || 0} posts
+                            </Badge>
+                          </div>
+                          
+                          {s.description && (
+                            <p className="text-sm text-gray-600 mb-3">
+                              {s.description}
+                            </p>
+                          )}
+                          
+                          <div className="flex flex-wrap gap-2 mb-2">
+                            <div className="text-xs text-gray-500">
+                              <strong>Schedule:</strong> {formatFrequency(s.frequency)}
+                            </div>
+                            <div className="text-xs text-gray-500">
+                              <strong>Days:</strong> {s.daysOfWeek.join(', ')}
+                            </div>
+                            {s.timeOfDay && (
+                              <div className="text-xs text-gray-500">
+                                <strong>Time:</strong> {s.timeOfDay}
+                              </div>
+                            )}
+                          </div>
+                          
+                          <div className="flex flex-wrap gap-2 mb-2">
+                            {s.platforms.map((platform: string) => (
+                              <div key={platform} className="flex items-center space-x-1 text-xs text-gray-500">
+                                {getPlatformIcon(platform)}
+                                <span>{platform}</span>
+                              </div>
+                            ))}
+                          </div>
+                          
+                          <div className="flex items-center space-x-4 text-xs text-gray-500">
+                            <div className="flex items-center space-x-1">
+                              <Clock className="w-3 h-3" />
+                              <span>
+                                Next: {s.nextScheduledAt ? formatDateTime(s.nextScheduledAt) : 'Not scheduled'}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <div className="flex space-x-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setEditingSeries(s)
+                              setShowSeriesDialog(true)
+                            }}
+                          >
+                            <Edit className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => deleteSeries(s.id)}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Manage Schedules Tab */}
+        <TabsContent value="manage">
+          <Card className="shadow-sm">
+            <CardHeader>
+              <CardTitle>Scheduled Posts</CardTitle>
+              <CardDescription>
+                View and manage your upcoming and recurring posts
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {isLoading ? (
+                <div className="text-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                </div>
+              ) : schedules.length === 0 ? (
+                <div className="text-center py-12 text-gray-500">
+                  <Calendar className="w-8 h-8 mx-auto mb-3 opacity-50" />
+                  <p>No scheduled posts yet</p>
+                  <p className="text-sm">Create your first scheduled post to get started</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {schedules.map((schedule) => (
+                    <div
+                      key={schedule.id}
+                      className="border rounded-lg p-4 hover:bg-gray-50 transition-colors"
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center space-x-2 mb-2">
+                            <h3 className="font-medium">{schedule.title}</h3>
+                            <Badge 
+                              variant={schedule.status === 'ACTIVE' ? 'default' : 'secondary'}
+                              className="text-xs"
+                            >
+                              {schedule.status}
+                            </Badge>
+                            <Badge variant="outline" className="text-xs">
+                              {schedule.scheduleType}
+                            </Badge>
+                          </div>
+                          
+                          <p className="text-sm text-gray-600 mb-3 line-clamp-2">
+                            {schedule.content}
+                          </p>
+                          
+                          <div className="flex flex-wrap gap-2 mb-2">
+                            {schedule.platforms.map((platform) => (
+                              <div key={platform} className="flex items-center space-x-1 text-xs text-gray-500">
+                                {getPlatformIcon(platform)}
+                                <span>{platform}</span>
+                              </div>
+                            ))}
+                          </div>
+                          
+                          <div className="flex items-center space-x-4 text-xs text-gray-500">
+                            <div className="flex items-center space-x-1">
+                              <Clock className="w-3 h-3" />
+                              <span>
+                                Next: {schedule.nextRun ? formatDateTime(schedule.nextRun) : 'Not scheduled'}
+                              </span>
+                            </div>
+                            {schedule.isRecurring && (
+                              <div className="flex items-center space-x-1">
+                                <PlayCircle className="w-3 h-3" />
+                                <span>Runs: {schedule.runCount}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        
+                        <div className="flex space-x-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => cancelSchedule(schedule.id)}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Bulk Scheduling Tab */}
+        <TabsContent value="bulk">
+          <BulkScheduleCalendar />
+        </TabsContent>
+      </Tabs>
+
+      {/* Team Creation Dialog */}
+      <Dialog open={showTeamDialog} onOpenChange={setShowTeamDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create New Team</DialogTitle>
+            <DialogDescription>
+              Organize people by teams (e.g., "9th Grade Boys", "10th Grade Girls")
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="team-name">Team Name *</Label>
+              <Input
+                id="team-name"
+                placeholder="e.g., 9th Grade Boys"
+                value={teamFormData.name}
+                onChange={(e) => setTeamFormData({ ...teamFormData, name: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="team-description">Description (Optional)</Label>
+              <Textarea
+                id="team-description"
+                placeholder="Brief description of this team"
+                value={teamFormData.description}
+                onChange={(e) => setTeamFormData({ ...teamFormData, description: e.target.value })}
+                rows={2}
+              />
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowTeamDialog(false)
+                setTeamFormData({ name: '', description: '' })
+              }}
+              className="flex-1"
+            >
+              Cancel
+            </Button>
+            <Button onClick={createTeam} className="flex-1">
+              Create Team
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Member Addition Dialog */}
+      <Dialog open={showMemberDialog} onOpenChange={setShowMemberDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add Team Member</DialogTitle>
+            <DialogDescription>
+              Add a person to tag in your posts
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="member-name">Name *</Label>
+              <Input
+                id="member-name"
+                placeholder="e.g., John Smith"
+                value={memberFormData.name}
+                onChange={(e) => setMemberFormData({ ...memberFormData, name: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="member-handle">Social Media Handle (Optional)</Label>
+              <Input
+                id="member-handle"
+                placeholder="e.g., johnsmith (without @)"
+                value={memberFormData.handle}
+                onChange={(e) => setMemberFormData({ ...memberFormData, handle: e.target.value })}
+              />
+              <p className="text-xs text-gray-500">
+                Used for tagging on platforms like Instagram, Twitter, etc.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="member-platform">Primary Platform (Optional)</Label>
+              <Select 
+                value={memberFormData.platform} 
+                onValueChange={(value) => setMemberFormData({ ...memberFormData, platform: value })}
+              >
+                <SelectTrigger id="member-platform">
+                  <SelectValue placeholder="Select platform" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="instagram">Instagram</SelectItem>
+                  <SelectItem value="facebook">Facebook</SelectItem>
+                  <SelectItem value="twitter">Twitter/X</SelectItem>
+                  <SelectItem value="linkedin">LinkedIn</SelectItem>
+                  <SelectItem value="tiktok">TikTok</SelectItem>
+                  <SelectItem value="youtube">YouTube</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowMemberDialog(false)
+                setMemberFormData({ name: '', handle: '', platform: '' })
+              }}
+              className="flex-1"
+            >
+              Cancel
+            </Button>
+            <Button onClick={addMember} className="flex-1">
+              Add Member
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Compression Progress Dialog */}
+      <Dialog open={isCompressing}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Compressing Video</DialogTitle>
+            <DialogDescription>
+              Please wait while we compress your video for optimal upload...
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-gray-600">{compressionFileName}</span>
+                <span className="font-medium">{compressionProgress}%</span>
+              </div>
+              <Progress value={compressionProgress} className="h-2" />
+            </div>
+            <p className="text-xs text-gray-500 text-center">
+              This may take a minute depending on video size and quality
+            </p>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Save Prompt Dialog */}
+      <Dialog open={showSavePromptDialog} onOpenChange={setShowSavePromptDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Content Polished! ✨</DialogTitle>
+            <DialogDescription>
+              Your prompt has been polished and is ready to use. Would you like to save this prompt for future use?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex gap-3 mt-4">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowSavePromptDialog(false)
+                toast({
+                  title: 'Ready to go!',
+                  description: 'Your polished content is ready to publish or schedule.',
+                })
+              }}
+              className="flex-1"
+            >
+              No, Thanks
+            </Button>
+            <Button
+              onClick={async () => {
+                await savePrompt()
+                setShowSavePromptDialog(false)
+              }}
+              className="flex-1 bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600"
+            >
+              💾 Yes, Save It
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Series Creation/Edit Dialog */}
+      <Dialog open={showSeriesDialog} onOpenChange={(open) => {
+        setShowSeriesDialog(open)
+        if (!open) {
+          setEditingSeries(null)
+          setSeriesFormData({
+            name: '',
+            description: '',
+            frequency: 'ONCE_WEEK',
+            daysOfWeek: [],
+            timeOfDay: '09:00',
+            platforms: [],
+            startDate: '',
+            endDate: ''
+          })
+        }
+      }}>
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{editingSeries ? 'Edit Series' : 'Create New Series'}</DialogTitle>
+            <DialogDescription>
+              Set up a recurring schedule for your posts. Posts assigned to this series will automatically follow this schedule.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="series-name">Series Name *</Label>
+              <Input
+                id="series-name"
+                placeholder="e.g., Motivational Monday, Weekly Highlights"
+                value={seriesFormData.name}
+                onChange={(e) => setSeriesFormData({ ...seriesFormData, name: e.target.value })}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="series-description">Description (Optional)</Label>
+              <Textarea
+                id="series-description"
+                placeholder="Describe what this series is about..."
+                value={seriesFormData.description}
+                onChange={(e) => setSeriesFormData({ ...seriesFormData, description: e.target.value })}
+                rows={2}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Frequency *</Label>
+              <Select 
+                value={seriesFormData.frequency} 
+                onValueChange={(value) => {
+                  setSeriesFormData({ ...seriesFormData, frequency: value })
+                  // Auto-set days based on frequency
+                  if (value === 'ONCE_WEEK' && seriesFormData.daysOfWeek.length === 0) {
+                    setSeriesFormData(prev => ({ ...prev, daysOfWeek: ['MONDAY'] }))
+                  } else if (value === 'TWICE_WEEK' && seriesFormData.daysOfWeek.length === 0) {
+                    setSeriesFormData(prev => ({ ...prev, daysOfWeek: ['MONDAY', 'THURSDAY'] }))
+                  } else if (value === 'THREE_WEEK' && seriesFormData.daysOfWeek.length === 0) {
+                    setSeriesFormData(prev => ({ ...prev, daysOfWeek: ['MONDAY', 'WEDNESDAY', 'FRIDAY'] }))
+                  }
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select frequency" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ONCE_WEEK">Once per week</SelectItem>
+                  <SelectItem value="TWICE_WEEK">Twice per week</SelectItem>
+                  <SelectItem value="THREE_WEEK">Three times per week</SelectItem>
+                  <SelectItem value="CUSTOM">Custom schedule</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Days of Week *</Label>
+              <div className="grid grid-cols-4 gap-2">
+                {['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'].map((day) => (
+                  <div key={day} className="flex items-center space-x-2">
+                    <Checkbox
+                      id={`day-${day}`}
+                      checked={seriesFormData.daysOfWeek.includes(day)}
+                      onCheckedChange={(checked) => {
+                        if (checked) {
+                          setSeriesFormData({
+                            ...seriesFormData,
+                            daysOfWeek: [...seriesFormData.daysOfWeek, day]
+                          })
+                        } else {
+                          setSeriesFormData({
+                            ...seriesFormData,
+                            daysOfWeek: seriesFormData.daysOfWeek.filter(d => d !== day)
+                          })
+                        }
+                      }}
+                    />
+                    <Label htmlFor={`day-${day}`} className="text-sm cursor-pointer">
+                      {day.substring(0, 3)}
+                    </Label>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="series-time">Time of Day</Label>
+              <Input
+                id="series-time"
+                type="time"
+                value={seriesFormData.timeOfDay}
+                onChange={(e) => setSeriesFormData({ ...seriesFormData, timeOfDay: e.target.value })}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Platforms *</Label>
+              <div className="grid grid-cols-2 gap-2">
+                {platforms.map((platform) => (
+                  <div key={platform.id} className="flex items-center space-x-2">
+                    <Checkbox
+                      id={`series-platform-${platform.id}`}
+                      checked={seriesFormData.platforms.includes(platform.id)}
+                      onCheckedChange={(checked) => {
+                        if (checked) {
+                          setSeriesFormData({
+                            ...seriesFormData,
+                            platforms: [...seriesFormData.platforms, platform.id]
+                          })
+                        } else {
+                          setSeriesFormData({
+                            ...seriesFormData,
+                            platforms: seriesFormData.platforms.filter(p => p !== platform.id)
+                          })
+                        }
+                      }}
+                    />
+                    <Label htmlFor={`series-platform-${platform.id}`} className="text-sm cursor-pointer flex items-center space-x-1">
+                      <platform.icon className="w-4 h-4" />
+                      <span>{platform.label}</span>
+                    </Label>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="series-start-date">Start Date *</Label>
+                <Input
+                  id="series-start-date"
+                  type="date"
+                  value={seriesFormData.startDate}
+                  onChange={(e) => setSeriesFormData({ ...seriesFormData, startDate: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="series-end-date">End Date (Optional)</Label>
+                <Input
+                  id="series-end-date"
+                  type="date"
+                  value={seriesFormData.endDate}
+                  onChange={(e) => setSeriesFormData({ ...seriesFormData, endDate: e.target.value })}
+                />
+              </div>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowSeriesDialog(false)
+                setEditingSeries(null)
+              }}
+              className="flex-1"
+            >
+              Cancel
+            </Button>
+            <Button onClick={createOrUpdateSeries} className="flex-1">
+              {editingSeries ? 'Update Series' : 'Create Series'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}

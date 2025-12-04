@@ -1,0 +1,1173 @@
+'use client'
+
+import { useState, useEffect, useRef } from 'react'
+import Link from 'next/link'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Badge } from '@/components/ui/badge'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import { Progress } from '@/components/ui/progress'
+import { Slider } from '@/components/ui/slider'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
+import {
+  Search,
+  Loader2,
+  Facebook,
+  Twitter,
+  Instagram,
+  Linkedin,
+  Youtube,
+  Send,
+  Home,
+  Folder,
+  Sparkles,
+  ArrowLeft,
+  ArrowRight,
+  Save,
+  X,
+  CheckCircle2,
+  AlertCircle,
+  HelpCircle,
+  Calendar,
+  Users,
+  Palette,
+  FileText,
+  Wand2,
+  MessageSquare,
+  ChevronLeft,
+  ChevronRight
+} from 'lucide-react'
+import Image from 'next/image'
+import { useToast } from '@/hooks/use-toast'
+
+// Types
+interface TemplateField {
+  id: string
+  fieldName: string
+  fieldLabel: string
+  fieldType: string
+  defaultValue: string | null
+  isRequired: boolean
+  order: number
+  fontSize?: number
+  fontFamily?: string
+  fontColor?: string
+}
+
+interface Template {
+  id: string
+  name: string
+  description: string | null
+  category: string
+  imageUrl: string
+  width: number
+  height: number
+  usageCount: number
+  platforms: string[]
+  fields?: TemplateField[]
+}
+
+interface WorkspaceBranding {
+  id: string
+  name: string
+  logoUrl: string | null
+  brandColors: string[]
+  isDefault: boolean
+}
+
+interface PlatformIcon {
+  name: string
+  icon: React.ReactNode
+  color: string
+}
+
+interface Team {
+  id: string
+  name: string
+  members: TeamMember[]
+}
+
+interface TeamMember {
+  id: string
+  name: string
+  handle?: string | null
+}
+
+interface WizardState {
+  currentStep: number
+  selectedCategory: string | null
+  selectedTemplate: Template | null
+  formData: Record<string, string>
+  selectedBranding: WorkspaceBranding | null
+  visualEffects: {
+    filter: string
+    opacity: number
+    blur: number
+  }
+  generatedContent: {
+    content: string
+    caption: string
+    hashtags: string
+  }
+  selectedPlatforms: string[]
+  selectedTags: string[]
+  scheduleType: string
+  scheduledDate: string
+  scheduledTime: string
+  isRecurring: boolean
+}
+
+// Constants
+const platformIcons: Record<string, PlatformIcon> = {
+  facebook: { name: 'Facebook', icon: <Facebook className="w-5 h-5" />, color: 'text-blue-600' },
+  twitter: { name: 'Twitter', icon: <Twitter className="w-5 h-5" />, color: 'text-sky-500' },
+  instagram: { name: 'Instagram', icon: <Instagram className="w-5 h-5" />, color: 'text-pink-600' },
+  linkedin: { name: 'LinkedIn', icon: <Linkedin className="w-5 h-5" />, color: 'text-blue-700' },
+  youtube: { name: 'YouTube', icon: <Youtube className="w-5 h-5" />, color: 'text-red-600' }
+}
+
+const folderColors: Record<string, { bg: string, icon: string }> = {
+  sports: { bg: 'bg-blue-50', icon: 'text-blue-500' },
+  quotes: { bg: 'bg-purple-50', icon: 'text-purple-500' },
+  promotional: { bg: 'bg-green-50', icon: 'text-green-500' },
+  events: { bg: 'bg-yellow-50', icon: 'text-yellow-500' },
+  custom: { bg: 'bg-gray-50', icon: 'text-gray-500' },
+}
+
+const STEPS = [
+  { id: 1, title: 'Choose Template', icon: Folder, description: 'Select a category and template' },
+  { id: 2, title: 'Fill Information', icon: FileText, description: 'Enter template data' },
+  { id: 3, title: 'Customize Design', icon: Palette, description: 'Apply branding and effects' },
+  { id: 4, title: 'Generate Content', icon: Sparkles, description: 'Create AI-powered posts' },
+  { id: 5, title: 'Select Platforms', icon: Users, description: 'Choose platforms and tags' },
+  { id: 6, title: 'Schedule & Review', icon: Calendar, description: 'Final review and publish' },
+]
+
+export default function ContentJourneyPage() {
+  const [templates, setTemplates] = useState<Template[]>([])
+  const [brandings, setBrandings] = useState<WorkspaceBranding[]>([])
+  const [teams, setTeams] = useState<Team[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [showCancelDialog, setShowCancelDialog] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const { toast } = useToast()
+  
+  // Wizard state
+  const [wizardState, setWizardState] = useState<WizardState>({
+    currentStep: 1,
+    selectedCategory: null,
+    selectedTemplate: null,
+    formData: {},
+    selectedBranding: null,
+    visualEffects: {
+      filter: 'none',
+      opacity: 100,
+      blur: 0
+    },
+    generatedContent: {
+      content: '',
+      caption: '',
+      hashtags: ''
+    },
+    selectedPlatforms: [],
+    selectedTags: [],
+    scheduleType: 'now',
+    scheduledDate: '',
+    scheduledTime: '',
+    isRecurring: false
+  })
+
+  const [stepValidation, setStepValidation] = useState<Record<number, boolean>>({
+    1: false,
+    2: false,
+    3: true, // Optional step
+    4: false,
+    5: false,
+    6: false
+  })
+
+  useEffect(() => {
+    fetchData()
+  }, [])
+
+  const fetchData = async () => {
+    try {
+      const [templatesRes] = await Promise.all([
+        fetch('/api/templates/public')
+      ])
+      
+      if (templatesRes.ok) {
+        const templatesData = await templatesRes.json()
+        setTemplates(templatesData.templates || [])
+      }
+    } catch (error) {
+      console.error('Error fetching data:', error)
+      toast({
+        title: 'Error',
+        description: 'Failed to load data',
+        variant: 'destructive'
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // Validation logic
+  useEffect(() => {
+    const newValidation = { ...stepValidation }
+    
+    // Step 1: Template selected
+    newValidation[1] = !!wizardState.selectedTemplate
+    
+    // Step 2: All required fields filled
+    if (wizardState.selectedTemplate?.fields) {
+      const requiredFields = wizardState.selectedTemplate.fields.filter(f => f.isRequired)
+      newValidation[2] = requiredFields.every(f => wizardState.formData[f.fieldName]?.trim())
+    } else {
+      newValidation[2] = !!wizardState.selectedTemplate
+    }
+    
+    // Step 4: Content generated
+    newValidation[4] = !!wizardState.generatedContent.content.trim()
+    
+    // Step 5: At least one platform selected
+    newValidation[5] = wizardState.selectedPlatforms.length > 0
+    
+    // Step 6: Valid schedule
+    if (wizardState.scheduleType === 'scheduled') {
+      newValidation[6] = !!(wizardState.scheduledDate && wizardState.scheduledTime)
+    } else {
+      newValidation[6] = true
+    }
+    
+    setStepValidation(newValidation)
+  }, [wizardState])
+
+  const goToStep = (step: number) => {
+    // Check if previous steps are valid
+    for (let i = 1; i < step; i++) {
+      if (!stepValidation[i]) {
+        toast({
+          title: 'Cannot proceed',
+          description: `Please complete Step ${i} first`,
+          variant: 'destructive'
+        })
+        return
+      }
+    }
+    setWizardState(prev => ({ ...prev, currentStep: step }))
+  }
+
+  const nextStep = () => {
+    if (!stepValidation[wizardState.currentStep]) {
+      toast({
+        title: 'Incomplete step',
+        description: 'Please complete all required fields',
+        variant: 'destructive'
+      })
+      return
+    }
+    
+    if (wizardState.currentStep < 6) {
+      setWizardState(prev => ({ ...prev, currentStep: prev.currentStep + 1 }))
+    }
+  }
+
+  const prevStep = () => {
+    if (wizardState.currentStep > 1) {
+      setWizardState(prev => ({ ...prev, currentStep: prev.currentStep - 1 }))
+    }
+  }
+
+  const saveDraft = async () => {
+    setIsSaving(true)
+    try {
+      // Save to localStorage for now (can be enhanced to save to backend)
+      localStorage.setItem('wizardDraft', JSON.stringify(wizardState))
+      toast({
+        title: 'Draft saved',
+        description: 'Your progress has been saved'
+      })
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to save draft',
+        variant: 'destructive'
+      })
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const cancelWizard = () => {
+    if (wizardState.currentStep > 1 || wizardState.selectedTemplate) {
+      setShowCancelDialog(true)
+    } else {
+      resetWizard()
+    }
+  }
+
+  const resetWizard = () => {
+    setWizardState({
+      currentStep: 1,
+      selectedCategory: null,
+      selectedTemplate: null,
+      formData: {},
+      selectedBranding: null,
+      visualEffects: {
+        filter: 'none',
+        opacity: 100,
+        blur: 0
+      },
+      generatedContent: {
+        content: '',
+        caption: '',
+        hashtags: ''
+      },
+      selectedPlatforms: [],
+      selectedTags: [],
+      scheduleType: 'now',
+      scheduledDate: '',
+      scheduledTime: '',
+      isRecurring: false
+    })
+    setShowCancelDialog(false)
+  }
+
+  const categories = Array.from(new Set(templates.map(t => t.category)))
+  const filteredTemplates = wizardState.selectedCategory
+    ? templates.filter(t => t.category === wizardState.selectedCategory)
+    : []
+
+  const getFolderColor = (category: string) => {
+    return folderColors[category.toLowerCase()] || { bg: 'bg-gray-50', icon: 'text-gray-500' }
+  }
+
+  const progress = (wizardState.currentStep / 6) * 100
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="w-10 h-10 animate-spin text-blue-600" />
+      </div>
+    )
+  }
+
+  return (
+    <TooltipProvider>
+      <div className="bg-gray-50">
+        {/* Progress Bar */}
+        <div className="bg-white border-b border-gray-200 py-4 sticky top-0 z-40">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-gray-900">
+                  Step {wizardState.currentStep} of 6: {STEPS[wizardState.currentStep - 1].title}
+                </h2>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={saveDraft}
+                    disabled={isSaving}
+                    className="gap-2"
+                  >
+                    <Save className="w-4 h-4" />
+                    {isSaving ? 'Saving...' : 'Save Draft'}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={cancelWizard}
+                    className="gap-2"
+                  >
+                    <X className="w-4 h-4" />
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+              
+              <div className="space-y-2">
+                <Progress value={progress} className="h-2" />
+                <div className="flex items-center justify-between text-xs text-gray-500">
+                  <span>{progress.toFixed(0)}% complete</span>
+                  <span>{STEPS[wizardState.currentStep - 1].description}</span>
+                </div>
+              </div>
+
+              {/* Step indicators */}
+              <div className="flex items-center justify-between">
+                {STEPS.map((step, index) => {
+                  const StepIcon = step.icon
+                  const isActive = wizardState.currentStep === step.id
+                  const isCompleted = stepValidation[step.id]
+                  const isPast = wizardState.currentStep > step.id
+                  
+                  return (
+                    <div key={step.id} className="flex items-center">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            onClick={() => goToStep(step.id)}
+                            className={`flex flex-col items-center gap-1 p-2 rounded-lg transition-all ${
+                              isActive
+                                ? 'bg-blue-50 text-blue-600'
+                                : isPast && isCompleted
+                                ? 'text-green-600 hover:bg-green-50'
+                                : 'text-gray-400 hover:text-gray-600'
+                            }`}
+                          >
+                            <div className={`w-10 h-10 rounded-full flex items-center justify-center border-2 ${
+                              isActive
+                                ? 'border-blue-600 bg-blue-600 text-white'
+                                : isPast && isCompleted
+                                ? 'border-green-600 bg-green-600 text-white'
+                                : 'border-gray-300'
+                            }`}>
+                              {isPast && isCompleted ? (
+                                <CheckCircle2 className="w-5 h-5" />
+                              ) : (
+                                <StepIcon className="w-5 h-5" />
+                              )}
+                            </div>
+                            <span className="text-xs font-medium hidden md:block">{step.title}</span>
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>{step.description}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                      
+                      {index < STEPS.length - 1 && (
+                        <div className={`w-12 h-0.5 mx-2 ${
+                          isPast && isCompleted ? 'bg-green-600' : 'bg-gray-300'
+                        }`} />
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Main Content with Sidebar */}
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <div className="flex gap-6">
+            {/* Main Content Area */}
+            <div className="flex-1">
+              <StepContent
+                wizardState={wizardState}
+                setWizardState={setWizardState}
+                templates={templates}
+                categories={categories}
+                filteredTemplates={filteredTemplates}
+                getFolderColor={getFolderColor}
+                toast={toast}
+              />
+            </div>
+
+            {/* Sidebar Summary Panel */}
+            <div className="w-80 hidden lg:block">
+              <SidebarSummary wizardState={wizardState} stepValidation={stepValidation} />
+            </div>
+          </div>
+        </div>
+
+        {/* Navigation Footer */}
+        <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 py-4 shadow-lg">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex items-center justify-between">
+              <Button
+                variant="outline"
+                onClick={prevStep}
+                disabled={wizardState.currentStep === 1}
+                className="gap-2"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                Previous
+              </Button>
+              
+              <div className="flex items-center gap-2">
+                {!stepValidation[wizardState.currentStep] && (
+                  <div className="flex items-center gap-2 text-amber-600">
+                    <AlertCircle className="w-4 h-4" />
+                    <span className="text-sm">Complete this step to continue</span>
+                  </div>
+                )}
+                {stepValidation[wizardState.currentStep] && (
+                  <div className="flex items-center gap-2 text-green-600">
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span className="text-sm">Step complete</span>
+                  </div>
+                )}
+              </div>
+
+              <Button
+                onClick={nextStep}
+                disabled={!stepValidation[wizardState.currentStep] || wizardState.currentStep === 6}
+                className="gap-2"
+              >
+                Next
+                <ArrowRight className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        {/* Cancel Confirmation Dialog */}
+        <AlertDialog open={showCancelDialog} onOpenChange={setShowCancelDialog}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Cancel wizard?</AlertDialogTitle>
+              <AlertDialogDescription>
+                You have unsaved changes. Are you sure you want to cancel? All progress will be lost.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Continue editing</AlertDialogCancel>
+              <AlertDialogAction onClick={resetWizard} className="bg-red-600 hover:bg-red-700">
+                Yes, cancel
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
+    </TooltipProvider>
+  )
+}
+
+// Step Content Component
+function StepContent({ 
+  wizardState, 
+  setWizardState, 
+  templates,
+  categories,
+  filteredTemplates,
+  getFolderColor,
+  toast
+}: any) {
+  const { currentStep } = wizardState
+
+  switch (currentStep) {
+    case 1:
+      return <Step1ChooseTemplate {...{ wizardState, setWizardState, categories, filteredTemplates, getFolderColor }} />
+    case 2:
+      return <Step2FillInformation {...{ wizardState, setWizardState, toast }} />
+    case 3:
+      return <Step3CustomizeDesign {...{ wizardState, setWizardState }} />
+    case 4:
+      return <Step4GenerateContent {...{ wizardState, setWizardState, toast }} />
+    case 5:
+      return <Step5SelectPlatforms {...{ wizardState, setWizardState }} />
+    case 6:
+      return <Step6ScheduleReview {...{ wizardState, setWizardState, toast }} />
+    default:
+      return null
+  }
+}
+
+// Sidebar Summary Component
+function SidebarSummary({ wizardState, stepValidation }: any) {
+  return (
+    <Card className="sticky top-32">
+      <CardHeader>
+        <CardTitle className="text-lg">Summary</CardTitle>
+        <CardDescription>Your progress at a glance</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Template */}
+        {wizardState.selectedTemplate && (
+          <div className="space-y-2">
+            <Label className="text-xs text-gray-500">Selected Template</Label>
+            <div className="relative aspect-square rounded-lg overflow-hidden border">
+              <Image
+                src={wizardState.selectedTemplate.imageUrl}
+                alt={wizardState.selectedTemplate.name}
+                fill
+                className="object-cover"
+              />
+            </div>
+            <p className="font-medium text-sm">{wizardState.selectedTemplate.name}</p>
+          </div>
+        )}
+
+        {/* Fields Progress */}
+        {wizardState.selectedTemplate?.fields && (
+          <div className="space-y-2">
+            <Label className="text-xs text-gray-500">Form Fields</Label>
+            <div className="flex items-center gap-2">
+              {stepValidation[2] ? (
+                <CheckCircle2 className="w-4 h-4 text-green-600" />
+              ) : (
+                <AlertCircle className="w-4 h-4 text-amber-600" />
+              )}
+              <span className="text-sm">
+                {Object.keys(wizardState.formData).filter(k => wizardState.formData[k]).length} / {wizardState.selectedTemplate.fields.length} filled
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Platforms */}
+        {wizardState.selectedPlatforms.length > 0 && (
+          <div className="space-y-2">
+            <Label className="text-xs text-gray-500">Platforms ({wizardState.selectedPlatforms.length})</Label>
+            <div className="flex flex-wrap gap-2">
+              {wizardState.selectedPlatforms.map((platform: string) => {
+                const info = platformIcons[platform]
+                return (
+                  <Badge key={platform} variant="secondary" className="gap-1">
+                    {info?.icon}
+                    {info?.name}
+                  </Badge>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Schedule Status */}
+        <div className="space-y-2">
+          <Label className="text-xs text-gray-500">Schedule</Label>
+          <p className="text-sm">
+            {wizardState.scheduleType === 'now' ? 'Post immediately' : 'Scheduled for later'}
+          </p>
+        </div>
+
+        {/* Steps Checklist */}
+        <div className="space-y-2 pt-4 border-t">
+          <Label className="text-xs text-gray-500">Checklist</Label>
+          {STEPS.map(step => (
+            <div key={step.id} className="flex items-center gap-2">
+              {stepValidation[step.id] ? (
+                <CheckCircle2 className="w-4 h-4 text-green-600" />
+              ) : (
+                <div className="w-4 h-4 rounded-full border-2 border-gray-300" />
+              )}
+              <span className={`text-sm ${stepValidation[step.id] ? 'text-green-600' : 'text-gray-500'}`}>
+                {step.title}
+              </span>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+// Step 1: Choose Template
+function Step1ChooseTemplate({ wizardState, setWizardState, categories, filteredTemplates, getFolderColor }: any) {
+  const [searchTerm, setSearchTerm] = useState('')
+
+  const selectCategory = (category: string) => {
+    setWizardState((prev: WizardState) => ({
+      ...prev,
+      selectedCategory: category,
+      selectedTemplate: null
+    }))
+  }
+
+  const selectTemplate = async (template: Template) => {
+    // Fetch full template with fields
+    try {
+      const response = await fetch(`/api/templates/public/${template.id}`)
+      if (response.ok) {
+        const data = await response.json()
+        const fullTemplate = data.template
+        
+        // Initialize form data
+        const initialFormData: Record<string, string> = {}
+        if (fullTemplate.fields) {
+          fullTemplate.fields.forEach((field: TemplateField) => {
+            initialFormData[field.fieldName] = field.defaultValue || ''
+          })
+        }
+        
+        setWizardState((prev: WizardState) => ({
+          ...prev,
+          selectedTemplate: fullTemplate,
+          formData: initialFormData
+        }))
+      }
+    } catch (error) {
+      console.error('Error fetching template:', error)
+    }
+  }
+
+  const backToCategories = () => {
+    setWizardState((prev: WizardState) => ({
+      ...prev,
+      selectedCategory: null
+    }))
+  }
+
+  const searchedTemplates = searchTerm
+    ? filteredTemplates.filter((t: Template) =>
+        t.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        t.description?.toLowerCase().includes(searchTerm.toLowerCase())
+      )
+    : filteredTemplates
+
+  if (!wizardState.selectedCategory) {
+    // Show categories
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Folder className="w-5 h-5" />
+            Choose a Category
+          </CardTitle>
+          <CardDescription>
+            Select a template category to browse available templates
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+            {categories.map((category: string) => {
+              const colors = getFolderColor(category)
+              const categoryTemplates = filteredTemplates.filter((t: Template) => t.category === category)
+              
+              return (
+                <button
+                  key={category}
+                  onClick={() => selectCategory(category)}
+                  className="text-left"
+                >
+                  <Card className="hover:shadow-lg transition-all hover:border-blue-300 cursor-pointer">
+                    <CardContent className="p-0">
+                      <div className={`${colors.bg} p-8 flex items-center justify-center border-b`}>
+                        <Folder className={`w-16 h-16 ${colors.icon}`} />
+                      </div>
+                      <div className="p-4">
+                        <h3 className="font-bold uppercase text-sm mb-1">{category}</h3>
+                        <p className="text-xs text-gray-500">{categoryTemplates.length} templates</p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </button>
+              )
+            })}
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  // Show templates in category
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-4">
+        <Button variant="outline" onClick={backToCategories} className="gap-2">
+          <ArrowLeft className="w-4 h-4" />
+          Back to Categories
+        </Button>
+        <h2 className="text-xl font-bold capitalize">{wizardState.selectedCategory} Templates</h2>
+      </div>
+
+      <Card>
+        <CardContent className="p-4">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+            <Input
+              placeholder="Search templates..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-10"
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {searchedTemplates.map((template: Template) => (
+          <Card
+            key={template.id}
+            className={`cursor-pointer hover:shadow-lg transition-all ${
+              wizardState.selectedTemplate?.id === template.id
+                ? 'border-2 border-blue-500 ring-2 ring-blue-200'
+                : 'hover:border-blue-300'
+            }`}
+            onClick={() => selectTemplate(template)}
+          >
+            <CardContent className="p-0">
+              <div className="relative aspect-square bg-gray-100">
+                <Image
+                  src={template.imageUrl}
+                  alt={template.name}
+                  fill
+                  className="object-cover"
+                />
+                {wizardState.selectedTemplate?.id === template.id && (
+                  <div className="absolute top-2 right-2 bg-blue-600 text-white rounded-full p-2">
+                    <CheckCircle2 className="w-5 h-5" />
+                  </div>
+                )}
+              </div>
+              <div className="p-4">
+                <h3 className="font-bold mb-1">{template.name}</h3>
+                <p className="text-sm text-gray-600 line-clamp-2">{template.description}</p>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// Step 2: Fill Information (Placeholder)
+function Step2FillInformation({ wizardState, setWizardState, toast }: any) {
+  if (!wizardState.selectedTemplate) {
+    return (
+      <Card>
+        <CardContent className="py-12 text-center">
+          <AlertCircle className="w-12 h-12 text-amber-500 mx-auto mb-4" />
+          <p className="text-gray-600">Please select a template first</p>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <FileText className="w-5 h-5" />
+          Fill Template Information
+        </CardTitle>
+        <CardDescription>
+          Enter the required information for your template
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        {wizardState.selectedTemplate.fields?.map((field: TemplateField) => (
+          <div key={field.id} className="space-y-2">
+            <Label htmlFor={field.fieldName}>
+              {field.fieldLabel}
+              {field.isRequired && <span className="text-red-500 ml-1">*</span>}
+            </Label>
+            {field.fieldType === 'textarea' ? (
+              <Textarea
+                id={field.fieldName}
+                value={wizardState.formData[field.fieldName] || ''}
+                onChange={(e) =>
+                  setWizardState((prev: WizardState) => ({
+                    ...prev,
+                    formData: { ...prev.formData, [field.fieldName]: e.target.value }
+                  }))
+                }
+                placeholder={`Enter ${field.fieldLabel.toLowerCase()}...`}
+                className="min-h-[100px]"
+              />
+            ) : (
+              <Input
+                id={field.fieldName}
+                type={field.fieldType === 'number' ? 'number' : 'text'}
+                value={wizardState.formData[field.fieldName] || ''}
+                onChange={(e) =>
+                  setWizardState((prev: WizardState) => ({
+                    ...prev,
+                    formData: { ...prev.formData, [field.fieldName]: e.target.value }
+                  }))
+                }
+                placeholder={`Enter ${field.fieldLabel.toLowerCase()}...`}
+              />
+            )}
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  )
+}
+
+// Placeholder components for other steps
+function Step3CustomizeDesign({ wizardState, setWizardState }: any) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Palette className="w-5 h-5" />
+          Customize Visual Design
+        </CardTitle>
+        <CardDescription>Apply branding and visual effects (Optional)</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <p className="text-gray-600">Design customization features coming soon...</p>
+      </CardContent>
+    </Card>
+  )
+}
+
+function Step4GenerateContent({ wizardState, setWizardState, toast }: any) {
+  const [isGenerating, setIsGenerating] = useState(false)
+
+  const generateContent = async () => {
+    setIsGenerating(true)
+    try {
+      // Simulate AI generation
+      await new Promise(resolve => setTimeout(resolve, 2000))
+      
+      setWizardState((prev: WizardState) => ({
+        ...prev,
+        generatedContent: {
+          content: 'Generated post content based on your template...',
+          caption: 'Engaging caption for your post',
+          hashtags: '#example #content #generated'
+        }
+      }))
+      
+      toast({
+        title: 'Content generated!',
+        description: 'Your post content has been created'
+      })
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to generate content',
+        variant: 'destructive'
+      })
+    } finally {
+      setIsGenerating(false)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Sparkles className="w-5 h-5" />
+          Generate Social Content
+        </CardTitle>
+        <CardDescription>Create AI-powered post content, captions, and hashtags</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <Button onClick={generateContent} disabled={isGenerating} className="gap-2">
+          {isGenerating ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Generating...
+            </>
+          ) : (
+            <>
+              <Wand2 className="w-4 h-4" />
+              Generate Content
+            </>
+          )}
+        </Button>
+
+        {wizardState.generatedContent.content && (
+          <div className="space-y-4 p-4 bg-green-50 rounded-lg border border-green-200">
+            <div>
+              <Label>Content</Label>
+              <Textarea
+                value={wizardState.generatedContent.content}
+                onChange={(e) =>
+                  setWizardState((prev: WizardState) => ({
+                    ...prev,
+                    generatedContent: { ...prev.generatedContent, content: e.target.value }
+                  }))
+                }
+                className="mt-2"
+              />
+            </div>
+            <div>
+              <Label>Caption</Label>
+              <Input
+                value={wizardState.generatedContent.caption}
+                onChange={(e) =>
+                  setWizardState((prev: WizardState) => ({
+                    ...prev,
+                    generatedContent: { ...prev.generatedContent, caption: e.target.value }
+                  }))
+                }
+                className="mt-2"
+              />
+            </div>
+            <div>
+              <Label>Hashtags</Label>
+              <Input
+                value={wizardState.generatedContent.hashtags}
+                onChange={(e) =>
+                  setWizardState((prev: WizardState) => ({
+                    ...prev,
+                    generatedContent: { ...prev.generatedContent, hashtags: e.target.value }
+                  }))
+                }
+                className="mt-2"
+              />
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function Step5SelectPlatforms({ wizardState, setWizardState }: any) {
+  const togglePlatform = (platform: string) => {
+    setWizardState((prev: WizardState) => ({
+      ...prev,
+      selectedPlatforms: prev.selectedPlatforms.includes(platform)
+        ? prev.selectedPlatforms.filter(p => p !== platform)
+        : [...prev.selectedPlatforms, platform]
+    }))
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Users className="w-5 h-5" />
+          Select Platforms
+        </CardTitle>
+        <CardDescription>Choose where to publish your post</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+          {Object.entries(platformIcons).map(([key, info]) => (
+            <div
+              key={key}
+              onClick={() => togglePlatform(key)}
+              className={`border-2 rounded-lg p-4 cursor-pointer transition-all ${
+                wizardState.selectedPlatforms.includes(key)
+                  ? 'border-blue-500 bg-blue-50'
+                  : 'border-gray-200 hover:border-gray-300'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <Checkbox checked={wizardState.selectedPlatforms.includes(key)} />
+                <div className="flex items-center gap-2">
+                  <span className={info.color}>{info.icon}</span>
+                  <span className="font-medium text-sm">{info.name}</span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function Step6ScheduleReview({ wizardState, setWizardState, toast }: any) {
+  const [isPosting, setIsPosting] = useState(false)
+
+  const handlePost = async () => {
+    setIsPosting(true)
+    try {
+      // Simulate posting
+      await new Promise(resolve => setTimeout(resolve, 2000))
+      
+      toast({
+        title: 'Success!',
+        description: `Post published to ${wizardState.selectedPlatforms.length} platform(s)`
+      })
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to publish post',
+        variant: 'destructive'
+      })
+    } finally {
+      setIsPosting(false)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Calendar className="w-5 h-5" />
+          Schedule & Review
+        </CardTitle>
+        <CardDescription>Final review and scheduling options</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        <div className="space-y-4">
+          <Label>Schedule Type</Label>
+          <Select
+            value={wizardState.scheduleType}
+            onValueChange={(value) =>
+              setWizardState((prev: WizardState) => ({ ...prev, scheduleType: value }))
+            }
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="now">Post Now</SelectItem>
+              <SelectItem value="scheduled">Schedule for Later</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {wizardState.scheduleType === 'scheduled' && (
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label>Date</Label>
+              <Input
+                type="date"
+                value={wizardState.scheduledDate}
+                onChange={(e) =>
+                  setWizardState((prev: WizardState) => ({ ...prev, scheduledDate: e.target.value }))
+                }
+              />
+            </div>
+            <div>
+              <Label>Time</Label>
+              <Input
+                type="time"
+                value={wizardState.scheduledTime}
+                onChange={(e) =>
+                  setWizardState((prev: WizardState) => ({ ...prev, scheduledTime: e.target.value }))
+                }
+              />
+            </div>
+          </div>
+        )}
+
+        <Button onClick={handlePost} disabled={isPosting} className="w-full gap-2" size="lg">
+          {isPosting ? (
+            <>
+              <Loader2 className="w-5 h-5 animate-spin" />
+              Publishing...
+            </>
+          ) : (
+            <>
+              <Send className="w-5 h-5" />
+              Publish Post
+            </>
+          )}
+        </Button>
+      </CardContent>
+    </Card>
+  )
+}
