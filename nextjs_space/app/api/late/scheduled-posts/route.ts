@@ -82,7 +82,7 @@ export async function GET(request: NextRequest) {
     })
 
     // Map profile IDs to names for UI display
-    const profileMap = new Map(user.profiles.map(p => [p.lateProfileId, p.name]))
+    const profileMap = new Map(user.profiles.map((p: any) => [p.lateProfileId, p.name]))
 
     // Combine and normalize posts from both sources
     const combinedPosts = [
@@ -106,8 +106,8 @@ export async function GET(request: NextRequest) {
       })),
       // Local DB posts (that may not be in Late API)
       ...dbPosts
-        .filter(p => !lateApiPosts.some((lp: any) => lp._id === p.latePostId || lp.id === p.latePostId))
-        .map(post => ({
+        .filter((p: any) => !lateApiPosts.some((lp: any) => lp._id === p.latePostId || lp.id === p.latePostId))
+        .map((post: any) => ({
           id: post.id,
           source: 'local',
           content: post.content,
@@ -115,7 +115,7 @@ export async function GET(request: NextRequest) {
           platforms: post.platforms,
           platformDetails: [],
           mediaUrls: post.mediaUrls,
-          mediaItems: post.mediaUrls.map(url => ({ url, type: url.match(/\.(mp4|mov|webm)$/i) ? 'video' : 'image' })),
+          mediaItems: post.mediaUrls.map((url: string) => ({ url, type: url.match(/\.(mp4|mov|webm)$/i) ? 'video' : 'image' })),
           status: post.status.toLowerCase(),
           scheduledFor: post.scheduledAt?.toISOString(),
           publishedAt: post.postedAt?.toISOString(),
@@ -136,7 +136,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       posts: combinedPosts,
       total: combinedPosts.length,
-      profiles: user.profiles.map(p => ({ id: p.id, name: p.name, lateProfileId: p.lateProfileId }))
+      profiles: user.profiles.map((p: any) => ({ id: p.id, name: p.name, lateProfileId: p.lateProfileId }))
     })
 
   } catch (error) {

@@ -48,8 +48,8 @@ export async function GET(request: NextRequest) {
     })
 
     const companies = companyMemberships
-      .filter(membership => membership.company !== null)
-      .map(membership => ({
+      .filter((membership: any) => membership.company !== null)
+      .map((membership: any) => ({
         id: membership.company!.id,
         name: membership.company!.name,
         description: membership.company!.description,

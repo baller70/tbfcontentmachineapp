@@ -36,10 +36,10 @@ export async function POST(req: NextRequest) {
       timezone: tz,
       frequency,
       daysOfWeek,
-      generatedContent, // NEW: Pre-generated content from frontend
+      generatedContent, // Pre-generated content from frontend
     } = body
 
-    console.log('📋 Bulk CSV Generation Started')
+    console.log('📋 Bulk Post Generation Started')
     console.log('Dropbox Folder:', dropboxFolderPath)
     console.log('Profile ID:', profileId)
     console.log('Platforms:', platforms)
@@ -62,7 +62,64 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
     }
 
-    // 2. Get prompt if using prompt mode
+    // 2. Build platform accounts array for Late API
+    // Late API expects: platforms: [{ platform: "instagram", accountId: "abc123" }]
+    const platformAccounts: { platform: string; accountId: string }[] = []
+    const missingPlatforms: string[] = []
+
+    for (const platformName of platforms) {
+      const platformSetting = profile.platformSettings.find(
+        (ps: any) => ps.platform?.toLowerCase() === platformName.toLowerCase()
+      )
+
+      if (!platformSetting) {
+        console.warn(`⚠️ No platform setting found for: ${platformName}`)
+        missingPlatforms.push(platformName)
+        continue
+      }
+
+      if (!platformSetting.isConnected || !platformSetting.platformId) {
+        console.warn(`⚠️ Platform ${platformName} is not connected or has no platformId`)
+        missingPlatforms.push(platformName)
+        continue
+      }
+
+      // Check for placeholder IDs (when platformId equals the platform name itself)
+      const isPlaceholder = [
+        'instagram', 'facebook', 'linkedin', 'threads',
+        'tiktok', 'bluesky', 'youtube', 'twitter'
+      ].includes(platformSetting.platformId.toLowerCase())
+
+      if (isPlaceholder) {
+        console.warn(`⚠️ Platform ${platformName} has placeholder ID "${platformSetting.platformId}", needs real Late account ID`)
+        missingPlatforms.push(platformName)
+        continue
+      }
+
+      console.log(`✅ ${platformName}: Using Late account ID ${platformSetting.platformId}`)
+      platformAccounts.push({
+        platform: platformName.toLowerCase(),
+        accountId: platformSetting.platformId,
+      })
+    }
+
+    // Check if we have at least one valid platform
+    if (platformAccounts.length === 0) {
+      return NextResponse.json(
+        {
+          error: `No valid Late API account IDs found for platforms: ${platforms.join(', ')}. ` +
+            `Please go to Settings > Platform Connections and sync with your Late account. ` +
+            `Each platform needs a real Late account ID (not placeholder values).`,
+        },
+        { status: 400 }
+      )
+    }
+
+    if (missingPlatforms.length > 0) {
+      console.warn(`⚠️ Some platforms will be skipped: ${missingPlatforms.join(', ')}`)
+    }
+
+    // 3. Get prompt if using prompt mode
     let promptText = ''
     if (contentMode === 'prompt' && promptId) {
       const prompt = await prisma.savedPrompt.findUnique({
@@ -73,7 +130,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 2.5. Get brand voice profile for AI content generation
+    // 3.5. Get brand voice profile for AI content generation
     let brandVoice = null
     if (contentMode === 'ai') {
       try {
@@ -94,7 +151,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 3. List files from Dropbox
+    // 4. List files from Dropbox
     console.log('📂 Listing files from Dropbox...')
     const files = await listFilesInFolder(dropboxFolderPath)
     const mediaFiles = files.filter((f) =>
@@ -106,8 +163,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No media files found in folder' }, { status: 400 })
     }
 
-    // 4. Process each file and build CSV rows
-    const csvRows: any[] = []
+    // 5. Process each file and create posts via Late API
     const results: any[] = []
     let validCount = 0
     let invalidCount = 0
@@ -178,7 +234,7 @@ export async function POST(req: NextRequest) {
 
         // Generate content
         let postContent = ''
-        
+
         // Check if we have pre-generated content from frontend
         if (generatedContent && Array.isArray(generatedContent)) {
           const preGenerated = generatedContent.find((gc: any) => gc.fileName === file.name)
@@ -187,40 +243,32 @@ export async function POST(req: NextRequest) {
             postContent = preGenerated.content
           }
         }
-        
+
         // Fallback to old content generation logic if no pre-generated content
         if (!postContent) {
           if (contentMode === 'custom') {
             postContent = customContent
           } else if (contentMode === 'ai') {
             console.log('  🤖 Generating AI content with vision analysis...')
-            // For AI mode, we'll analyze the image and generate content using aiPrompt
             postContent = await generateAIContent(fileBuffer, isImg, aiPrompt || '', platforms, brandVoice)
           } else if (contentMode === 'prompt') {
-            // For prompt mode, apply the prompt template
             postContent = promptText.replace('{filename}', file.name)
           }
         }
 
         // Calculate schedule time
-        let scheduleTime = ''
+        let scheduledFor: string | undefined = undefined
         if (schedulingMode === 'custom' && startDate) {
           const baseDate = dayjs.tz(`${startDate} ${startTime}`, tz)
-          
-          // If daysOfWeek is provided, calculate schedule based on those days
+
           if (daysOfWeek && daysOfWeek.length > 0) {
             // Convert days to dayjs day numbers (0 = Sunday, 1 = Monday, etc.)
             const dayMap: { [key: string]: number } = {
-              SUNDAY: 0,
-              MONDAY: 1,
-              TUESDAY: 2,
-              WEDNESDAY: 3,
-              THURSDAY: 4,
-              FRIDAY: 5,
-              SATURDAY: 6,
+              SUNDAY: 0, MONDAY: 1, TUESDAY: 2, WEDNESDAY: 3,
+              THURSDAY: 4, FRIDAY: 5, SATURDAY: 6,
             }
             const scheduleDays = daysOfWeek.map((day: string) => dayMap[day.toUpperCase()]).sort()
-            
+
             // Find the next occurrence of a scheduled day
             let currentDate = baseDate
             let occurrenceCount = 0
@@ -234,133 +282,97 @@ export async function POST(req: NextRequest) {
               }
               currentDate = currentDate.add(1, 'day')
             }
-            scheduleTime = currentDate.format('YYYY-MM-DD HH:mm')
+            scheduledFor = currentDate.toISOString()
           } else {
             // Fallback to simple daily/every-other-day logic
             const daysToAdd = frequency === 'DAILY' ? i : i * 2
             const scheduledDate = baseDate.add(daysToAdd, 'day')
-            scheduleTime = scheduledDate.format('YYYY-MM-DD HH:mm')
+            scheduledFor = scheduledDate.toISOString()
           }
         }
 
-        // Build platform-specific account IDs
-        // For each platform, find its account ID from platform settings
-        const platformAccountIds: { [key: string]: string } = {}
-        for (const platformName of platforms) {
-          const platformSetting = profile.platformSettings.find(
-            (ps: any) => ps.platform === platformName.toLowerCase() && ps.isConnected && ps.platformId
-          )
-          
-          if (platformSetting && platformSetting.platformId) {
-            // Skip placeholder IDs (when platformId equals the platform name itself)
-            const isPlaceholder = [
-              'instagram',
-              'facebook',
-              'linkedin',
-              'threads',
-              'tiktok',
-              'bluesky',
-              'youtube',
-              'twitter',
-            ].includes(platformSetting.platformId.toLowerCase())
-            
-            if (!isPlaceholder) {
-              platformAccountIds[platformName.toLowerCase()] = platformSetting.platformId
-              console.log(`  ✅ ${platformName}: Account ID ${platformSetting.platformId}`)
-            } else {
-              console.warn(`  ⚠️  ${platformName}: Has placeholder ID "${platformSetting.platformId}", needs real Late account ID`)
-            }
-          } else {
-            console.warn(`  ⚠️  ${platformName}: Not connected or no account ID`)
-          }
+        // Build the Late API payload - using individual /posts endpoint
+        const latePayload: any = {
+          content: postContent,
+          platforms: platformAccounts,
+          mediaItems: [{
+            type: isVid ? 'video' : 'image',
+            url: mediaUrl,
+          }],
         }
 
-        // Check if we have at least one valid account ID
-        if (Object.keys(platformAccountIds).length === 0) {
-          const missingPlatforms = platforms.filter((p: string) => !platformAccountIds[p.toLowerCase()])
-          throw new Error(
-            `Platform connection error: No valid Late API account IDs found for ${missingPlatforms.join(', ')}. ` +
-            `Please go to Settings > Platform Connections and connect these platforms with valid Late account IDs. ` +
-            `Each platform needs a real account ID (not placeholder values).`
-          )
+        // Add scheduling or publish immediately
+        if (schedulingMode === 'now') {
+          latePayload.publishNow = true
+          console.log('  🚀 Publishing immediately')
+        } else if (schedulingMode === 'queue') {
+          latePayload.useQueue = true
+          console.log('  📥 Adding to queue')
+        } else if (scheduledFor) {
+          latePayload.scheduledFor = scheduledFor
+          latePayload.timezone = tz || 'America/New_York'
+          console.log(`  ⏰ Scheduling for: ${scheduledFor}`)
         }
 
-        // Log which platforms will be used vs skipped
-        const skippedPlatforms = platforms.filter((p: string) => !platformAccountIds[p.toLowerCase()])
-        if (skippedPlatforms.length > 0) {
-          console.warn(`  ⚠️  Skipping platforms without valid account IDs: ${skippedPlatforms.join(', ')}`)
-        }
+        console.log('  📤 Posting to Late API...')
+        console.log('  Payload:', JSON.stringify(latePayload, null, 2))
 
-        // Build CSV row with platform-specific account IDs
-        // The Late API CSV format expects account IDs in platform-specific columns
-        const csvRow: any = {
-          post_content: postContent,
-          schedule_time: scheduleTime || '',
-          tz: tz || 'America/New_York',
-          media_urls: mediaUrl,
-          publish_now: schedulingMode === 'now' ? 'true' : 'false',
-          use_queue: schedulingMode === 'queue' ? 'true' : 'false',
-        }
-        
-        // Add platform-specific account ID columns
-        for (const [platform, accountId] of Object.entries(platformAccountIds)) {
-          csvRow[`${platform}_account_id`] = accountId
-        }
+        // Send to Late API individual post endpoint
+        const postResponse = await axios.post('https://getlate.dev/api/v1/posts', latePayload, {
+          headers: {
+            Authorization: `Bearer ${process.env.LATE_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+        })
 
-        csvRows.push(csvRow)
+        const postId = postResponse.data.post?._id || postResponse.data._id || postResponse.data.id
+        console.log(`  ✅ Post created successfully! ID: ${postId}`)
+
         results.push({
           rowIndex,
           ok: true,
           file: file.name,
+          createdPostId: postId,
+          platforms: platformAccounts.map(p => p.platform),
         })
         validCount++
-        console.log(`  ✅ Row ${rowIndex} processed successfully`)
+
       } catch (error: any) {
         console.error(`  ❌ Error processing file ${file.name}:`, error.message)
+
+        // Extract more detailed error from axios response
+        let errorMessage = error.message
+        if (error.response?.data) {
+          const errorData = error.response.data
+          errorMessage = errorData.message || errorData.error || JSON.stringify(errorData)
+        }
+
         results.push({
           rowIndex,
           ok: false,
-          errors: [error.message],
+          file: file.name,
+          errors: [errorMessage],
         })
         invalidCount++
       }
     }
 
-    // 5. Convert rows to CSV format and send to Late API
-    console.log('\n📤 Sending CSV to Late API...')
-    const csvContent = convertToCSV(csvRows)
-    const csvBuffer = Buffer.from(csvContent, 'utf-8')
-
-    const csvForm = new FormData()
-    csvForm.append('file', csvBuffer, {
-      filename: 'bulk_schedule.csv',
-      contentType: 'text/csv',
-      knownLength: csvBuffer.length,
-    })
-
-    const bulkResponse = await axios.post('https://getlate.dev/api/v1/posts/bulk-upload', csvForm, {
-      headers: {
-        Authorization: `Bearer ${process.env.LATE_API_KEY}`,
-        ...csvForm.getHeaders(),
-      },
-    })
-
-    console.log('✅ Bulk CSV upload complete')
-    console.log('Response:', bulkResponse.data)
+    console.log('\n✅ Bulk post generation complete')
+    console.log(`   Total: ${mediaFiles.length}, Success: ${validCount}, Failed: ${invalidCount}`)
 
     return NextResponse.json({
-      success: true,
+      success: invalidCount === 0,
       total: mediaFiles.length,
       valid: validCount,
       invalid: invalidCount,
-      results: bulkResponse.data.results || results,
-      lateApiResponse: bulkResponse.data,
+      results,
+      skippedPlatforms: missingPlatforms.length > 0 ? missingPlatforms : undefined,
     })
   } catch (error: any) {
-    console.error('❌ Bulk CSV generation error:', error)
+    console.error('❌ Bulk post generation error:', error)
     return NextResponse.json(
       {
-        error: error.message || 'Failed to generate bulk CSV',
+        error: error.message || 'Failed to generate bulk posts',
         details: error.response?.data || error,
       },
       { status: 500 }
@@ -497,37 +509,5 @@ Create compelling social media content based on the above.`
   }
 }
 
-function convertToCSV(rows: any[]): string {
-  if (rows.length === 0) return ''
-
-  // Get all unique keys from all rows
-  const headers = Array.from(
-    new Set(
-      rows.reduce((acc: string[], row) => {
-        return [...acc, ...Object.keys(row)]
-      }, [])
-    )
-  ) as string[]
-
-  // Create header row
-  const csvHeaders = headers.join(',')
-
-  // Create data rows
-  const csvData = rows
-    .map((row) => {
-      return headers
-        .map((header) => {
-          const value = (row as any)[header] || ''
-          // Escape quotes and wrap in quotes if contains comma, quote, or newline
-          const stringValue = String(value)
-          if (stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n')) {
-            return `"${stringValue.replace(/"/g, '""')}"`
-          }
-          return stringValue
-        })
-        .join(',')
-    })
-    .join('\n')
-
-  return `${csvHeaders}\n${csvData}`
-}
+// Note: CSV bulk upload was replaced with individual post creation
+// for better error handling and Late API compatibility

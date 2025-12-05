@@ -208,7 +208,7 @@ export async function queueMultipleSeries(seriesIds: string[]): Promise<{
           id: true,
           name: true,
           dropboxFolderPath: true,
-          isActive: true
+          status: true
         }
       })
 
@@ -217,7 +217,7 @@ export async function queueMultipleSeries(seriesIds: string[]): Promise<{
         continue
       }
 
-      if (!series.isActive) {
+      if (series.status !== 'ACTIVE') {
         errors.push({ seriesId, error: 'Series is not active' })
         continue
       }

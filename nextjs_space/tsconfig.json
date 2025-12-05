@@ -38,6 +38,18 @@
   ],
   "exclude": [
     "node_modules",
-    "scripts"
+    "scripts",
+    "check_*.ts",
+    "bulk_schedule_*.ts",
+    "complete_*.ts",
+    "create_*.ts",
+    "debug_*.ts",
+    "finish_*.ts",
+    "fix_*.ts",
+    "make_*.ts",
+    "migrate_*.ts",
+    "schedule_*.ts",
+    "sync_*.ts",
+    "test_*.ts"
   ]
 }

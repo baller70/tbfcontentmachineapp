@@ -147,13 +147,13 @@ export default function SchedulePage() {
   }, [posts, filterStatus, filterProfile])
 
   // Handle event click
-  const handleSelectEvent = useCallback((event: CalendarEvent) => {
+  const handleSelectEvent = useCallback((event: any) => {
     setSelectedPost(event.resource)
     setShowPostDialog(true)
   }, [])
 
   // Handle drag and drop reschedule
-  const handleEventDrop = useCallback(async ({ event, start }: { event: CalendarEvent; start: Date }) => {
+  const handleEventDrop = useCallback(async ({ event, start }: any) => {
     const post = event.resource
     if (post.status !== 'scheduled') {
       toast({ title: 'Cannot reschedule', description: 'Only scheduled posts can be rescheduled', variant: 'destructive' })
@@ -217,7 +217,7 @@ export default function SchedulePage() {
   }
 
   // Custom event styling
-  const eventStyleGetter = (event: CalendarEvent) => {
+  const eventStyleGetter = (event: any) => {
     const status = event.resource.status
     const colors = statusColors[status] || statusColors.scheduled
     return {
@@ -407,12 +407,12 @@ export default function SchedulePage() {
 
             {/* Calendar */}
             <div className="h-[600px]">
-              {/* @ts-ignore */}
+              {/* @ts-ignore - react-big-calendar types are complex */}
               <DnDCalendar
                 localizer={localizer}
                 events={events}
-                startAccessor="start"
-                endAccessor="end"
+                startAccessor={(event: any) => event.start}
+                endAccessor={(event: any) => event.end}
                 view={view}
                 onView={setView}
                 date={date}
@@ -420,7 +420,7 @@ export default function SchedulePage() {
                 onSelectEvent={handleSelectEvent}
                 onEventDrop={handleEventDrop}
                 eventPropGetter={eventStyleGetter}
-                draggableAccessor={(event: CalendarEvent) => event.resource.status === 'scheduled'}
+                draggableAccessor={(event: any) => event.resource?.status === 'scheduled'}
                 resizable={false}
                 className="rounded-lg border"
               />

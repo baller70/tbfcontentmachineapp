@@ -134,15 +134,15 @@ async function scheduleBatch(startIndex: number, batchNumber: number) {
 
     // Get platforms
     const lateApiPlatforms = series.profile?.platformSettings
-      .filter(ps =>
+      .filter((ps: any) =>
         ps.platform !== 'twitter' &&
         ps.platform !== 'tiktok' &&
         ps.platform !== 'youtube' &&
         ps.platformId
       )
-      .map(ps => ({ platform: ps.platform, accountId: ps.platformId })) || [];
+      .map((ps: any) => ({ platform: ps.platform, accountId: ps.platformId })) || [];
 
-    console.log(`📱 Platforms: ${lateApiPlatforms.map(p => p.platform).join(', ')}`);
+    console.log(`📱 Platforms: ${lateApiPlatforms.map((p: any) => p.platform).join(', ')}`);
     console.log('');
 
     let successful = 0;

@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
 
     // Generate fresh signed URLs for all templates
     const templatesWithFreshUrls = await Promise.all(
-      templates.map(async (template) => {
+      templates.map(async (template: any) => {
         let freshImageUrl = template.imageUrl
         
         // Check if imageUrl is an S3 signed URL (contains amazonaws.com)

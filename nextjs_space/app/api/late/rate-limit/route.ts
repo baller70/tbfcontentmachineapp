@@ -137,9 +137,9 @@ export async function GET() {
     // Build response with all platforms
     const ALL_PLATFORMS = ['instagram', 'facebook', 'linkedin', 'threads', 'tiktok', 'bluesky', 'youtube']
     
-    const profilesWithStatus = profiles.map(profile => {
+    const profilesWithStatus = profiles.map((profile: any) => {
       const platforms = ALL_PLATFORMS.map(platform => {
-        const setting = profile.platformSettings.find(ps => ps.platform === platform)
+        const setting = profile.platformSettings.find((ps: any) => ps.platform === platform)
         const accountId = setting?.platformId
         const count = accountId ? (rateLimitData[accountId]?.[platform] || 0) : 0
         const remaining = 8 - count
@@ -202,9 +202,9 @@ export async function GET() {
 
     // Calculate overall status across all profiles
     let overallStatus: 'good' | 'warning' | 'critical' = 'good'
-    if (profilesWithStatus.some(p => p.overallStatus === 'critical')) {
+    if (profilesWithStatus.some((p: any) => p.overallStatus === 'critical')) {
       overallStatus = 'critical'
-    } else if (profilesWithStatus.some(p => p.overallStatus === 'warning')) {
+    } else if (profilesWithStatus.some((p: any) => p.overallStatus === 'warning')) {
       overallStatus = 'warning'
     }
 
@@ -228,7 +228,7 @@ export async function GET() {
       overallStatus,
       platformsAtLimit,
       platformsWithWarning,
-      totalPlatformsTracked: profilesWithStatus.reduce((sum, p) => sum + p.platforms.length, 0)
+      totalPlatformsTracked: profilesWithStatus.reduce((sum: number, p: any) => sum + p.platforms.length, 0)
     })
   } catch (error: any) {
     console.error('Error fetching Late rate limit status:', error)

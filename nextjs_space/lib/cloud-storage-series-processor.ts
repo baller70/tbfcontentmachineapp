@@ -387,7 +387,7 @@ export async function scheduleFirstSeriesPost(seriesId: string): Promise<{ succe
       }
       
       const setting = series.profile?.platformSettings?.find(
-        s => s.platform.toLowerCase() === platform.toLowerCase()
+        (s: any) => s.platform.toLowerCase() === platform.toLowerCase()
       );
       
       if (setting?.isConnected && setting.platformId) {
@@ -638,7 +638,7 @@ export async function processCloudStorageSeries(seriesId: string): Promise<{ suc
     
     if (profileLateId) {
       // Filter out Twitter since it uses its own API
-      const latePlatforms = series.platforms.filter(p => p.toLowerCase() !== 'twitter');
+      const latePlatforms = series.platforms.filter((p: any) => p.toLowerCase() !== 'twitter');
       
       for (const platform of latePlatforms) {
         const rateLimitCheck = canPostToLatePlatform(platform, profileLateId, profileName);
@@ -833,18 +833,18 @@ export async function processCloudStorageSeries(seriesId: string): Promise<{ suc
     const isVideoContent = downloadedFile.mimeType.startsWith('video/');
     
     // Get Late API account IDs (filter out YouTube if image)
-    let latePlatforms = series.platforms.filter(p => p !== 'twitter' && p !== 'x');
+    let latePlatforms = series.platforms.filter((p: any) => p !== 'twitter' && p !== 'x');
     if (!isVideoContent) {
       // Remove YouTube for image posts
-      latePlatforms = latePlatforms.filter(p => p.toLowerCase() !== 'youtube');
-      if (latePlatforms.length < series.platforms.filter(p => p !== 'twitter' && p !== 'x').length) {
+      latePlatforms = latePlatforms.filter((p: any) => p.toLowerCase() !== 'youtube');
+      if (latePlatforms.length < series.platforms.filter((p: any) => p !== 'twitter' && p !== 'x').length) {
         console.log('⚠️  Skipping YouTube (requires video, have image)');
       }
     }
-    
+
     const platformConfigs = latePlatforms
-      .map(platform => {
-        const setting = platformSettings.find(s => s.platform.toLowerCase() === platform.toLowerCase());
+      .map((platform: any) => {
+        const setting = platformSettings.find((s: any) => s.platform.toLowerCase() === platform.toLowerCase());
         if (setting?.platformId && setting.platformId !== platform) {
           return {
             platform,
@@ -853,7 +853,7 @@ export async function processCloudStorageSeries(seriesId: string): Promise<{ suc
         }
         return null;
       })
-      .filter((config): config is { platform: string; accountId: string } => config !== null);
+      .filter((config: any): config is { platform: string; accountId: string } => config !== null);
     
     // Post to Late API platforms using Queue System
     if (platformConfigs.length > 0) {

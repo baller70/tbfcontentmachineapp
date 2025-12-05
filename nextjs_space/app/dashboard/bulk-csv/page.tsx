@@ -760,7 +760,7 @@ export default function BulkScheduleCSVPage() {
             <div>
               <Label>Target Platforms</Label>
               <p className="text-xs text-muted-foreground mb-2">
-                Only platforms with valid Late API connections can be selected. Platforms without proper account IDs are disabled.
+                Select platforms to post to. Platforms must be connected via Late API in Settings.
               </p>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-2">
                 {platforms.map((platform) => {
@@ -768,8 +768,10 @@ export default function BulkScheduleCSVPage() {
                   const platformSetting = selectedProfile?.platformSettings?.find(
                     (ps: PlatformSetting) => ps.platform.toLowerCase() === platform.id.toLowerCase()
                   )
-                  const isConnected = platformSetting?.isConnected && platformSetting?.platformId &&
+                  // Check if platform has a real Late account ID (not a placeholder)
+                  const hasRealAccountId = platformSetting?.platformId &&
                     !['instagram', 'facebook', 'linkedin', 'threads', 'tiktok', 'bluesky', 'youtube', 'twitter'].includes(platformSetting.platformId.toLowerCase())
+                  const isConnected = platformSetting?.isConnected && hasRealAccountId
 
                   return (
                     <div key={platform.id} className="flex items-center space-x-2">
@@ -785,7 +787,7 @@ export default function BulkScheduleCSVPage() {
                       >
                         {platform.name}
                         {!isConnected && (
-                          <span className="text-xs text-yellow-600" title="Not connected to Late API">⚠️</span>
+                          <span className="text-xs text-yellow-600" title={platformSetting?.isConnected ? "Needs Late sync" : "Not connected"}>⚠️</span>
                         )}
                       </label>
                     </div>
@@ -794,11 +796,23 @@ export default function BulkScheduleCSVPage() {
               </div>
 
               {/* Warning for unconnected platforms */}
-              {selectedPlatforms.length === 0 && (
+              {connectedPlatforms.length === 0 && (
                 <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
                   <p className="text-sm text-yellow-800 flex items-center gap-2">
                     <AlertCircle className="w-4 h-4" />
-                    No platforms selected. Please select at least one connected platform.
+                    <span>
+                      <strong>No platforms connected!</strong> Go to{' '}
+                      <a href="/dashboard/settings" className="underline font-medium">Settings → Platforms</a>{' '}
+                      and click "Sync with Late" to connect your social accounts.
+                    </span>
+                  </p>
+                </div>
+              )}
+              {selectedPlatforms.length === 0 && connectedPlatforms.length > 0 && (
+                <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <p className="text-sm text-blue-800 flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4" />
+                    Please select at least one platform to continue.
                   </p>
                 </div>
               )}

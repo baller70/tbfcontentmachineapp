@@ -87,8 +87,8 @@ async function bulkScheduleMotivationalV3() {
     // 3. Get platform configurations
     const platformSettings = series.profile?.platformSettings || [];
     const lateApiPlatforms = platformSettings
-      .filter(ps => ps.platform !== 'twitter' && ps.platformId)
-      .map(ps => ({
+      .filter((ps: any) => ps.platform !== 'twitter' && ps.platformId)
+      .map((ps: any) => ({
         platform: ps.platform,
         accountId: ps.platformId!
       }));
@@ -97,7 +97,7 @@ async function bulkScheduleMotivationalV3() {
       throw new Error('❌ No connected Late API platforms found');
     }
 
-    console.log(`   📱 Platforms: ${lateApiPlatforms.map(p => p.platform).join(', ')}`);
+    console.log(`   📱 Platforms: ${lateApiPlatforms.map((p: any) => p.platform).join(', ')}`);
     console.log('');
 
     // 4. Process each file
@@ -249,7 +249,7 @@ async function bulkScheduleMotivationalV3() {
 
         const postId = postResponse.data.post?._id || postResponse.data._id;
         console.log(`      ✅ Post scheduled! ID: ${postId}`);
-        console.log(`      📱 Platforms: ${lateApiPlatforms.map(p => p.platform).join(', ')}`);
+        console.log(`      📱 Platforms: ${lateApiPlatforms.map((p: any) => p.platform).join(', ')}`);
         console.log(`      📅 Scheduled: ${scheduledDate.format('YYYY-MM-DD h:mm A z')}`);
 
         successCount++;
@@ -279,7 +279,7 @@ async function bulkScheduleMotivationalV3() {
     console.log(`❌ Failed: ${failCount}/${filesToProcess.length}`);
     console.log(`📅 Start Date: November 26, 2025 at 7:00 AM EST`);
     console.log(`📅 End Date: ${startDate.add(filesToProcess.length - 1, 'day').format('YYYY-MM-DD')} at 7:00 AM EST`);
-    console.log(`📱 Platforms: ${lateApiPlatforms.map(p => p.platform).join(', ')}`);
+    console.log(`📱 Platforms: ${lateApiPlatforms.map((p: any) => p.platform).join(', ')}`);
     console.log('');
 
     if (successCount === filesToProcess.length) {
