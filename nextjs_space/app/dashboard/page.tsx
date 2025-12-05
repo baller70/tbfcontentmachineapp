@@ -2617,26 +2617,48 @@ function Step5SelectPlatforms({ wizardState, setWizardState }: any) {
 
   useEffect(() => {
     const loadProfiles = async () => {
-      // Use optimized fetch with caching and retry
-      const result = await fetchProfilesOptimized()
+      try {
+        // Try optimized fetch first
+        const result = await fetchProfilesOptimized()
 
-      if (result.success && result.data) {
-        const profilesArray = result.data
-        setProfiles(profilesArray)
-        // Auto-select first profile if none selected
-        if (!wizardState.selectedProfileId && profilesArray.length > 0) {
-          setWizardState((prev: WizardState) => ({
-            ...prev,
-            selectedProfileId: profilesArray[0].id
-          }))
-        }
+        if (result.success && result.data) {
+          const profilesArray = result.data
+          setProfiles(profilesArray)
+          // Auto-select first profile if none selected
+          if (!wizardState.selectedProfileId && profilesArray.length > 0) {
+            setWizardState((prev: WizardState) => ({
+              ...prev,
+              selectedProfileId: profilesArray[0].id
+            }))
+          }
 
-        // Log retry count if there were retries (for monitoring)
-        if (result.retryCount && result.retryCount > 0) {
-          console.log(`Profiles fetched after ${result.retryCount} retry(ies)`)
+          // Log retry count if there were retries (for monitoring)
+          if (result.retryCount && result.retryCount > 0) {
+            console.log(`Profiles fetched after ${result.retryCount} retry(ies)`)
+          }
+        } else {
+          console.error('Failed to fetch profiles:', result.error)
         }
-      } else {
-        console.error('Failed to fetch profiles:', result.error)
+      } catch (optimizerError) {
+        // Fallback: Direct fetch if optimizer fails
+        console.warn('Optimizer failed, using direct fetch:', optimizerError)
+        try {
+          const response = await fetch('/api/profiles')
+          if (response.ok) {
+            const data = await response.json()
+            // FIX: API returns { profiles: [...] }, extract the array
+            const profilesArray = Array.isArray(data) ? data : (data.profiles || [])
+            setProfiles(profilesArray)
+            if (!wizardState.selectedProfileId && profilesArray.length > 0) {
+              setWizardState((prev: WizardState) => ({
+                ...prev,
+                selectedProfileId: profilesArray[0].id
+              }))
+            }
+          }
+        } catch (fetchError) {
+          console.error('Direct fetch also failed:', fetchError)
+        }
       }
 
       setIsLoadingProfiles(false)
