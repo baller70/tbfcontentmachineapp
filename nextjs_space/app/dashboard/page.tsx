@@ -164,6 +164,7 @@ interface WizardState {
   generatedContentByTemplate: Record<string, { content: string, caption: string, hashtags: string }>  // Generated content per template
   generatedGraphicUrls: Record<string, string>  // Canvas data URLs for each template
   editableContentByPlatform: Record<string, string>  // Editable content per platform
+  uploadedVideoUrl: string | null  // Video URL for video posts (TikTok, YouTube, etc.)
   selectedPlatforms: string[]
   selectedTeams: string[]  // Team IDs for tagging
   selectedTags: string[]
@@ -236,6 +237,7 @@ export default function ContentJourneyPage() {
     generatedContentByTemplate: {},  // NEW: Store generated content per template
     generatedGraphicUrls: {},  // Store canvas data URLs per template
     editableContentByPlatform: {},  // Store edited content per platform
+    uploadedVideoUrl: null,  // Video URL for video posts
     selectedPlatforms: [],
     selectedTeams: [],
     selectedTags: [],
@@ -438,6 +440,7 @@ export default function ContentJourneyPage() {
       generatedContentByTemplate: {},
       generatedGraphicUrls: {},
       editableContentByPlatform: {},
+      uploadedVideoUrl: null,
       selectedPlatforms: [],
       selectedTeams: [],
       selectedTags: [],
@@ -739,7 +742,7 @@ function StepContent({
 
   switch (currentStep) {
     case 1:
-      return <Step1ChooseTemplate {...{ wizardState, setWizardState, categories, filteredTemplates, getFolderColor }} />
+      return <Step1ChooseTemplate {...{ wizardState, setWizardState, templates, categories, filteredTemplates, getFolderColor }} />
     case 2:
       return <Step2FillInformation {...{ wizardState, setWizardState, toast }} />
     case 3:
@@ -855,7 +858,7 @@ function SidebarSummary({ wizardState, stepValidation }: any) {
 
 // Step 1: Choose Template
 // Step 1: Choose Template (with bulk selection)
-function Step1ChooseTemplate({ wizardState, setWizardState, categories, filteredTemplates, getFolderColor }: any) {
+function Step1ChooseTemplate({ wizardState, setWizardState, templates, categories, filteredTemplates, getFolderColor }: any) {
   const [searchTerm, setSearchTerm] = useState('')
 
   const selectCategory = (category: string) => {
@@ -1609,6 +1612,7 @@ function Step2FillInformation({ wizardState, setWizardState, toast }: any) {
 // Step 3: Customize Design (Full Implementation)
 function Step3CustomizeDesign({ wizardState, setWizardState, brandings }: any) {
   const [uploadingOverlay, setUploadingOverlay] = useState(false)
+  const [uploadingVideo, setUploadingVideo] = useState(false)
   const [customOverlayUrl, setCustomOverlayUrl] = useState('')
   const canvasRefs = useRef<(HTMLCanvasElement | null)[]>([])
 
@@ -1616,10 +1620,60 @@ function Step3CustomizeDesign({ wizardState, setWizardState, brandings }: any) {
 
   const isMediaField = (field: TemplateField) => {
     return field.fieldType === 'image' || field.fieldType === 'video' ||
-           field.fieldLabel.toLowerCase().includes('image') || 
+           field.fieldLabel.toLowerCase().includes('image') ||
            field.fieldLabel.toLowerCase().includes('video') ||
            field.fieldName.toLowerCase().includes('image') ||
            field.fieldName.toLowerCase().includes('video')
+  }
+
+  // Handle video upload
+  const handleVideoUpload = async (file: File) => {
+    setUploadingVideo(true)
+    try {
+      // Validate file type
+      const validVideoTypes = ['video/mp4', 'video/quicktime', 'video/webm']
+      if (!validVideoTypes.includes(file.type)) {
+        throw new Error('Invalid video format. Please upload MP4, MOV, or WebM files.')
+      }
+
+      // Check file size (max 50MB)
+      const maxSize = 50 * 1024 * 1024
+      if (file.size > maxSize) {
+        throw new Error('Video file is too large. Maximum size is 50MB.')
+      }
+
+      const formData = new FormData()
+      formData.append('file', file)
+
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to upload video')
+      }
+
+      const data = await response.json()
+      setWizardState((prev: WizardState) => ({
+        ...prev,
+        uploadedVideoUrl: data.url
+      }))
+      console.log('✅ Video uploaded successfully:', data.url)
+    } catch (error: any) {
+      console.error('Video upload error:', error)
+      alert(error.message || 'Failed to upload video')
+    } finally {
+      setUploadingVideo(false)
+    }
+  }
+
+  const handleRemoveVideo = () => {
+    setWizardState((prev: WizardState) => ({
+      ...prev,
+      uploadedVideoUrl: null
+    }))
   }
 
   // Debounced template preview rendering
@@ -2102,6 +2156,80 @@ function Step3CustomizeDesign({ wizardState, setWizardState, brandings }: any) {
               </Button>
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      {/* Video Upload Section */}
+      <Card className="border-2 border-dashed border-purple-200 bg-purple-50/50">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Video className="w-5 h-5 text-purple-600" />
+            Upload Video (Optional)
+          </CardTitle>
+          <CardDescription>
+            Upload a video for platforms like TikTok, YouTube, and Instagram Reels. Supported formats: MP4, MOV, WebM (max 50MB)
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              disabled={uploadingVideo}
+              onClick={() => document.getElementById('video-upload')?.click()}
+              className="gap-2 border-purple-300 hover:bg-purple-100"
+            >
+              {uploadingVideo ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Uploading Video...
+                </>
+              ) : (
+                <>
+                  <Video className="w-4 h-4" />
+                  Upload Video File
+                </>
+              )}
+            </Button>
+            <input
+              id="video-upload"
+              type="file"
+              accept="video/mp4,video/quicktime,video/webm"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0]
+                if (file) handleVideoUpload(file)
+              }}
+            />
+          </div>
+
+          {wizardState.uploadedVideoUrl && (
+            <div className="relative w-full bg-gray-900 rounded-lg overflow-hidden">
+              <video
+                src={wizardState.uploadedVideoUrl}
+                controls
+                className="w-full max-h-64 object-contain"
+              />
+              <Button
+                variant="destructive"
+                size="sm"
+                className="absolute top-2 right-2"
+                onClick={handleRemoveVideo}
+              >
+                <X className="w-4 h-4" />
+              </Button>
+              <div className="absolute bottom-2 left-2 bg-green-500 text-white text-xs px-2 py-1 rounded flex items-center gap-1">
+                <CheckCircle2 className="w-3 h-3" />
+                Video Ready
+              </div>
+            </div>
+          )}
+
+          <Alert className="bg-purple-100 border-purple-200">
+            <AlertTitle className="text-purple-800">Video Platforms</AlertTitle>
+            <AlertDescription className="text-purple-700">
+              When you upload a video, it will be used for video-supporting platforms: TikTok, YouTube, Instagram (Reels), and Facebook (Video). The image template will still be used for image-only platforms.
+            </AlertDescription>
+          </Alert>
         </CardContent>
       </Card>
 
@@ -2960,8 +3088,13 @@ function Step6ScheduleReview({ wizardState, setWizardState, toast }: any) {
         ? wizardState.generatedContentByTemplate[firstTemplateId]
         : { content: '', caption: '', hashtags: '' }
 
-      if (!graphicUrl) {
-        throw new Error('No graphic generated. Please generate a graphic first.')
+      // Determine which media URL to use
+      // If video is uploaded, use it for video-supporting platforms
+      // Otherwise, fall back to the graphic image
+      const mediaUrl = wizardState.uploadedVideoUrl || graphicUrl
+
+      if (!mediaUrl && !graphicUrl) {
+        throw new Error('No media generated. Please generate a graphic or upload a video first.')
       }
 
       if (!content?.content) {
@@ -2969,9 +3102,10 @@ function Step6ScheduleReview({ wizardState, setWizardState, toast }: any) {
       }
 
       // Use optimized posting with automatic retry and error handling
+      // Pass video URL if available, otherwise use graphic URL
       const result = await postToAllPlatformsOptimized(
         wizardState,
-        graphicUrl,
+        mediaUrl || graphicUrl,
         content
       )
 
@@ -3016,6 +3150,17 @@ function Step6ScheduleReview({ wizardState, setWizardState, toast }: any) {
         <CardDescription>Final review and scheduling options</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
+        {/* Media Summary */}
+        {wizardState.uploadedVideoUrl && (
+          <Alert className="bg-purple-50 border-purple-200">
+            <Video className="h-4 w-4 text-purple-600" />
+            <AlertTitle className="text-purple-800">Video Post</AlertTitle>
+            <AlertDescription className="text-purple-700">
+              Your video will be posted to video-supporting platforms (TikTok, YouTube, Instagram Reels, Facebook Video).
+            </AlertDescription>
+          </Alert>
+        )}
+
         <div className="space-y-4">
           <Label>Schedule Type</Label>
           <Select
