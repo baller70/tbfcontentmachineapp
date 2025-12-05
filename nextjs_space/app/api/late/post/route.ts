@@ -401,6 +401,10 @@ async function postToLateApi(postData: {
       if (scheduledFor) {
         payload.scheduledFor = scheduledFor; // ISO 8601 format (e.g., "2023-10-15T14:00:00Z")
         console.log(`⏰ Scheduling post for: ${scheduledFor}`);
+      } else {
+        // For immediate posting, set publishNow: true (required by Late API)
+        payload.publishNow = true;
+        console.log(`🚀 Publishing immediately (publishNow: true)`);
       }
       if (timezone) {
         payload.timezone = timezone; // e.g., "America/New_York"
@@ -418,7 +422,21 @@ async function postToLateApi(postData: {
         body: JSON.stringify(payload)
       })
 
-      const data = await response.json()
+      // Handle non-JSON responses gracefully
+      const contentType = response.headers.get('content-type')
+      let data: any
+
+      if (contentType && contentType.includes('application/json')) {
+        data = await response.json()
+      } else {
+        // Response is not JSON - likely an error message
+        const textResponse = await response.text()
+        console.error('Late API returned non-JSON response:', textResponse)
+        return {
+          success: false,
+          error: `Late API error (${response.status}): ${textResponse.substring(0, 200)}`
+        }
+      }
 
       console.log('Late API response:', JSON.stringify(data, null, 2))
 
