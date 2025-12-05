@@ -285,6 +285,43 @@ export async function postToTwitterOptimized(text: string, mediaUrls: string[]):
   })
 }
 
+// Helper function to upload data URL to S3 and get a hosted URL
+async function uploadDataUrlToS3(dataUrl: string): Promise<string> {
+  // If it's not a data URL, return as-is (it's already a hosted URL)
+  if (!dataUrl.startsWith('data:')) {
+    return dataUrl
+  }
+
+  // Convert data URL to Blob
+  const response = await fetch(dataUrl)
+  const blob = await response.blob()
+
+  // Create FormData and upload
+  const formData = new FormData()
+  formData.append('file', blob, `content-journey-${Date.now()}.png`)
+
+  const uploadResponse = await fetch('/api/upload', {
+    method: 'POST',
+    body: formData
+  })
+
+  if (!uploadResponse.ok) {
+    const error = await uploadResponse.json()
+    throw new Error(`Failed to upload image: ${error.error || 'Unknown error'}`)
+  }
+
+  const uploadResult = await uploadResponse.json()
+
+  // Return the full URL (signedUrl for immediate use)
+  // The cloud_storage_path needs to be converted to a full URL
+  if (uploadResult.signedUrl) {
+    return uploadResult.signedUrl
+  }
+
+  // Fallback to cloud_storage_path with API proxy
+  return `/api/upload/image?path=${encodeURIComponent(uploadResult.cloud_storage_path)}`
+}
+
 export async function postToAllPlatformsOptimized(
   wizardState: any,
   graphicUrl: string,
@@ -295,8 +332,31 @@ export async function postToAllPlatformsOptimized(
   errors: Record<string, string>
 }> {
   const postContent = `${content.content}\n\n${content.hashtags || ''}`
-  
-  const isVideo = graphicUrl.match(/\.(mp4|mov|avi|wmv|flv|webm)$/i)
+
+  let successCount = 0
+  const failedPlatforms: string[] = []
+  const errors: Record<string, string> = {}
+
+  // Upload data URL to S3 to get a hosted URL (Late API requires hosted URLs)
+  let hostedMediaUrl = graphicUrl
+  if (graphicUrl.startsWith('data:')) {
+    try {
+      console.log('📤 Uploading canvas image to S3...')
+      hostedMediaUrl = await uploadDataUrlToS3(graphicUrl)
+      console.log('✅ Image uploaded successfully:', hostedMediaUrl.substring(0, 100) + '...')
+    } catch (uploadError) {
+      console.error('❌ Failed to upload image:', uploadError)
+      return {
+        successCount: 0,
+        failedPlatforms: wizardState.selectedPlatforms,
+        errors: Object.fromEntries(
+          wizardState.selectedPlatforms.map((p: string) => [p, `Image upload failed: ${uploadError instanceof Error ? uploadError.message : 'Unknown error'}`])
+        )
+      }
+    }
+  }
+
+  const isVideo = hostedMediaUrl.match(/\.(mp4|mov|avi|wmv|flv|webm)$/i)
   const latePlatforms = wizardState.selectedPlatforms.filter((p: string) => {
     const platform = p.toLowerCase()
     if (platform === 'twitter') return false
@@ -306,22 +366,18 @@ export async function postToAllPlatformsOptimized(
   const includesTwitter = wizardState.selectedPlatforms.some(
     (p: string) => p.toLowerCase() === 'twitter'
   )
-  
-  let successCount = 0
-  const failedPlatforms: string[] = []
-  const errors: Record<string, string> = {}
-  
+
   if (latePlatforms.length > 0) {
     const result = await postToLateApiOptimized({
       profileId: wizardState.selectedProfileId,
       content: postContent,
-      mediaUrls: [graphicUrl],
+      mediaUrls: [hostedMediaUrl],
       platforms: latePlatforms,
       scheduledAt: wizardState.scheduleType === 'scheduled'
         ? new Date(`${wizardState.scheduledDate}T${wizardState.scheduledTime}`).toISOString()
         : undefined
     })
-    
+
     if (result.success) {
       successCount += latePlatforms.length
     } else {
@@ -331,16 +387,16 @@ export async function postToAllPlatformsOptimized(
       })
     }
   }
-  
+
   if (includesTwitter) {
     if (latePlatforms.length > 0) {
-      await new Promise(resolve => 
+      await new Promise(resolve =>
         setTimeout(resolve, CONTENT_JOURNEY_CONFIG.POST_DELAY_BETWEEN_PLATFORMS)
       )
     }
-    
-    const result = await postToTwitterOptimized(postContent, [graphicUrl])
-    
+
+    const result = await postToTwitterOptimized(postContent, [hostedMediaUrl])
+
     if (result.success) {
       successCount++
     } else {
@@ -348,7 +404,7 @@ export async function postToAllPlatformsOptimized(
       errors['twitter'] = result.error || 'Unknown error'
     }
   }
-  
+
   return { successCount, failedPlatforms, errors }
 }
 
