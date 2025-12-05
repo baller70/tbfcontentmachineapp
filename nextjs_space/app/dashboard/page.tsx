@@ -75,6 +75,15 @@ import {
 } from 'lucide-react'
 import Image from 'next/image'
 import { useToast } from '@/hooks/use-toast'
+import {
+  fetchTemplatesOptimized,
+  fetchTeamsOptimized,
+  fetchProfilesOptimized,
+  fetchInitialDataOptimized,
+  postToAllPlatformsOptimized,
+  invalidateAllCaches,
+  getCacheStats
+} from '@/lib/content-journey-optimizer'
 
 // Types
 interface TemplateField {
@@ -239,19 +248,28 @@ export default function ContentJourneyPage() {
 
   const fetchData = async () => {
     try {
-      const [templatesRes, teamsRes] = await Promise.all([
-        fetch('/api/templates/public'),
-        fetch('/api/teams')
-      ])
-      
-      if (templatesRes.ok) {
-        const templatesData = await templatesRes.json()
-        setTemplates(templatesData.templates || [])
+      // Use optimized parallel fetch with caching and retry
+      const { templates: templatesResult, teams: teamsResult } = await fetchInitialDataOptimized()
+
+      if (templatesResult.success && templatesResult.data) {
+        setTemplates(templatesResult.data)
+      } else if (templatesResult.error) {
+        console.error('Templates fetch error:', templatesResult.error)
       }
-      
-      if (teamsRes.ok) {
-        const teamsData = await teamsRes.json()
-        setTeams(teamsData.teams || [])
+
+      if (teamsResult.success && teamsResult.data) {
+        setTeams(teamsResult.data)
+      } else if (teamsResult.error) {
+        console.error('Teams fetch error:', teamsResult.error)
+      }
+
+      // Show error only if both failed
+      if (!templatesResult.success && !teamsResult.success) {
+        toast({
+          title: 'Error',
+          description: 'Failed to load data. Please refresh the page.',
+          variant: 'destructive'
+        })
       }
     } catch (error) {
       console.error('Error fetching data:', error)
@@ -2598,27 +2616,32 @@ function Step5SelectPlatforms({ wizardState, setWizardState }: any) {
   const [isLoadingProfiles, setIsLoadingProfiles] = useState(true)
 
   useEffect(() => {
-    const fetchProfiles = async () => {
-      try {
-        const response = await fetch('/api/profiles')
-        if (response.ok) {
-          const data = await response.json()
-          setProfiles(data)
-          // Auto-select first profile if none selected
-          if (!wizardState.selectedProfileId && data.length > 0) {
-            setWizardState((prev: WizardState) => ({
-              ...prev,
-              selectedProfileId: data[0].id
-            }))
-          }
+    const loadProfiles = async () => {
+      // Use optimized fetch with caching and retry
+      const result = await fetchProfilesOptimized()
+
+      if (result.success && result.data) {
+        const profilesArray = result.data
+        setProfiles(profilesArray)
+        // Auto-select first profile if none selected
+        if (!wizardState.selectedProfileId && profilesArray.length > 0) {
+          setWizardState((prev: WizardState) => ({
+            ...prev,
+            selectedProfileId: profilesArray[0].id
+          }))
         }
-      } catch (error) {
-        console.error('Failed to fetch profiles:', error)
-      } finally {
-        setIsLoadingProfiles(false)
+
+        // Log retry count if there were retries (for monitoring)
+        if (result.retryCount && result.retryCount > 0) {
+          console.log(`Profiles fetched after ${result.retryCount} retry(ies)`)
+        }
+      } else {
+        console.error('Failed to fetch profiles:', result.error)
       }
+
+      setIsLoadingProfiles(false)
     }
-    fetchProfiles()
+    loadProfiles()
   }, [])
 
   const togglePlatform = (platform: string) => {
@@ -2900,94 +2923,45 @@ function Step6ScheduleReview({ wizardState, setWizardState, toast }: any) {
       // Get the first template's graphic URL and content
       const firstTemplateId = wizardState.selectedTemplates[0]?.id
       const graphicUrl = firstTemplateId ? wizardState.generatedGraphicUrls[firstTemplateId] : null
-      const content = wizardState.generatedContent
-      
+      // FIX: Get content from generatedContentByTemplate, not generatedContent (which is never populated)
+      const content = firstTemplateId
+        ? wizardState.generatedContentByTemplate[firstTemplateId]
+        : { content: '', caption: '', hashtags: '' }
+
       if (!graphicUrl) {
         throw new Error('No graphic generated. Please generate a graphic first.')
       }
 
-      // Prepare the post content
-      const postContent = `${content.content}\n\n${content.hashtags || ''}`
-      
-      // Separate Twitter from Late API platforms
-      // Also exclude YouTube when posting images (YouTube requires video content)
-      const isVideo = graphicUrl.match(/\.(mp4|mov|avi|wmv|flv|webm)$/i);
-      const latePlatforms = wizardState.selectedPlatforms.filter((p: string) => {
-        const platform = p.toLowerCase();
-        if (platform === 'twitter') return false;
-        if (platform === 'youtube' && !isVideo) return false; // YouTube needs videos
-        return true;
-      });
-      const includesTwitter = wizardState.selectedPlatforms.some((p: string) => p.toLowerCase() === 'twitter')
-      
-      let successCount = 0
-      let failedPlatforms: string[] = []
-
-      // Post to Late API platforms
-      if (latePlatforms.length > 0) {
-        try {
-          const lateResponse = await fetch('/api/late/post', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              profileId: wizardState.selectedProfileId,
-              content: postContent,
-              mediaUrls: [graphicUrl],
-              platforms: latePlatforms,
-              scheduledAt: wizardState.scheduleType === 'scheduled' 
-                ? new Date(`${wizardState.scheduledDate}T${wizardState.scheduledTime}`).toISOString()
-                : undefined
-            })
-          })
-
-          if (lateResponse.ok) {
-            successCount += latePlatforms.length
-          } else {
-            const errorData = await lateResponse.json()
-            console.error('Late API error:', errorData)
-            failedPlatforms.push(...latePlatforms)
-          }
-        } catch (error) {
-          console.error('Late API error:', error)
-          failedPlatforms.push(...latePlatforms)
-        }
+      if (!content?.content) {
+        throw new Error('No content generated. Please generate content first.')
       }
 
-      // Post to Twitter
-      if (includesTwitter) {
-        try {
-          const twitterResponse = await fetch('/api/twitter/post', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              text: postContent,
-              mediaUrls: [graphicUrl]
-            })
-          })
-
-          if (twitterResponse.ok) {
-            successCount++
-          } else {
-            const errorData = await twitterResponse.json()
-            console.error('Twitter error:', errorData)
-            failedPlatforms.push('twitter')
-          }
-        } catch (error) {
-          console.error('Twitter error:', error)
-          failedPlatforms.push('twitter')
-        }
-      }
+      // Use optimized posting with automatic retry and error handling
+      const result = await postToAllPlatformsOptimized(
+        wizardState,
+        graphicUrl,
+        content
+      )
 
       // Show result to user
-      if (successCount > 0) {
+      if (result.successCount > 0) {
         toast({
           title: 'Success!',
-          description: failedPlatforms.length > 0 
-            ? `Posted to ${successCount} platform(s). Failed: ${failedPlatforms.join(', ')}`
-            : `Post published to ${successCount} platform(s)!`
+          description: result.failedPlatforms.length > 0
+            ? `Posted to ${result.successCount} platform(s). Failed: ${result.failedPlatforms.join(', ')}`
+            : `Post published to ${result.successCount} platform(s)!`
         })
+
+        // Log any errors for debugging
+        if (Object.keys(result.errors).length > 0) {
+          console.warn('Platform posting errors:', result.errors)
+        }
       } else {
-        throw new Error('Failed to post to any platforms')
+        // All platforms failed - show specific error messages
+        const errorMessages = Object.entries(result.errors)
+          .map(([platform, error]) => `${platform}: ${error}`)
+          .join('; ')
+        throw new Error(`Failed to post to any platforms. ${errorMessages}`)
       }
     } catch (error: any) {
       toast({

@@ -23,7 +23,8 @@ import {
   AlertTriangle,
   CheckCircle,
   XCircle,
-  RefreshCw
+  RefreshCw,
+  Activity
 } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
@@ -32,6 +33,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
+import { MultiSeriesStatus } from '@/components/dashboard/multi-series-status'
+import { BulkScheduleProgress } from '@/components/dashboard/bulk-schedule-progress'
 
 interface TeamMember {
   id: string
@@ -805,9 +808,14 @@ export default function PostPage() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="grid w-full max-w-3xl grid-cols-4">
+        <TabsList className="grid w-full max-w-4xl grid-cols-5">
           <TabsTrigger value="tag-people">Tag People</TabsTrigger>
           <TabsTrigger value="series">Series</TabsTrigger>
+          <TabsTrigger value="multi-status" className="flex items-center gap-1">
+            <Activity className="w-3 h-3" />
+            <span className="hidden sm:inline">Multi-Series</span>
+            <span className="sm:hidden">Status</span>
+          </TabsTrigger>
           <TabsTrigger value="manage">Manage ({schedules.length})</TabsTrigger>
           <TabsTrigger value="rate-limits">Rate Limits</TabsTrigger>
         </TabsList>
@@ -1231,6 +1239,79 @@ export default function PostPage() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* Multi-Series Status Tab */}
+        <TabsContent value="multi-status" className="space-y-6">
+          <div className="grid gap-6">
+            {/* Multi-Series Status Dashboard */}
+            <MultiSeriesStatus />
+
+            {/* Show Bulk Schedule Progress if scheduling is active */}
+            {bulkScheduling && bulkSchedulingSeriesId && (
+              <BulkScheduleProgress
+                seriesId={bulkSchedulingSeriesId}
+                seriesName={series.find((s: PostSeries) => s.id === bulkSchedulingSeriesId)?.name || 'Unknown Series'}
+                onComplete={(result) => {
+                  toast({
+                    title: 'Bulk Schedule Complete',
+                    description: `${result.successful} posts scheduled successfully, ${result.failed} failed.`
+                  })
+                  setBulkScheduling(false)
+                  setBulkSchedulingSeriesId(null)
+                  fetchSeries()
+                }}
+                onError={(error) => {
+                  toast({
+                    title: 'Bulk Schedule Error',
+                    description: error,
+                    variant: 'destructive'
+                  })
+                  setBulkScheduling(false)
+                  setBulkSchedulingSeriesId(null)
+                }}
+              />
+            )}
+
+            {/* Quick Actions Card */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Quick Actions</CardTitle>
+                <CardDescription>Common bulk scheduling operations</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <Button
+                    variant="outline"
+                    className="h-auto py-4 flex flex-col items-center gap-2"
+                    onClick={() => setActiveTab('series')}
+                  >
+                    <PlayCircle className="w-6 h-6 text-blue-500" />
+                    <span className="text-sm font-medium">Start New Series</span>
+                    <span className="text-xs text-gray-500">Create and configure a new series</span>
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="h-auto py-4 flex flex-col items-center gap-2"
+                    onClick={() => fetchSeries()}
+                  >
+                    <RefreshCw className="w-6 h-6 text-green-500" />
+                    <span className="text-sm font-medium">Refresh Series</span>
+                    <span className="text-xs text-gray-500">Reload series data</span>
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="h-auto py-4 flex flex-col items-center gap-2"
+                    onClick={() => setActiveTab('rate-limits')}
+                  >
+                    <TrendingUp className="w-6 h-6 text-purple-500" />
+                    <span className="text-sm font-medium">View Rate Limits</span>
+                    <span className="text-xs text-gray-500">Check API usage and limits</span>
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
 
         {/* Manage Schedules Tab */}
