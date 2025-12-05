@@ -71,7 +71,10 @@ import {
   Share2,
   Video,
   Image as ImageIcon,
-  Building2
+  Building2,
+  Music2,
+  AtSign,
+  Cloud
 } from 'lucide-react'
 import Image from 'next/image'
 import { useToast } from '@/hooks/use-toast'
@@ -177,7 +180,10 @@ const platformIcons: Record<string, PlatformIcon> = {
   twitter: { name: 'Twitter', icon: <Twitter className="w-5 h-5" />, color: 'text-sky-500' },
   instagram: { name: 'Instagram', icon: <Instagram className="w-5 h-5" />, color: 'text-pink-600' },
   linkedin: { name: 'LinkedIn', icon: <Linkedin className="w-5 h-5" />, color: 'text-blue-700' },
-  youtube: { name: 'YouTube', icon: <Youtube className="w-5 h-5" />, color: 'text-red-600' }
+  youtube: { name: 'YouTube', icon: <Youtube className="w-5 h-5" />, color: 'text-red-600' },
+  tiktok: { name: 'TikTok', icon: <Music2 className="w-5 h-5" />, color: 'text-black' },
+  threads: { name: 'Threads', icon: <AtSign className="w-5 h-5" />, color: 'text-gray-900' },
+  bluesky: { name: 'Bluesky', icon: <Cloud className="w-5 h-5" />, color: 'text-blue-400' }
 }
 
 const folderColors: Record<string, { bg: string, icon: string }> = {
@@ -2729,7 +2735,10 @@ function Step5SelectPlatforms({ wizardState, setWizardState }: any) {
     linkedin: { limit: 3000, description: 'Character limit' },
     facebook: { limit: 63206, description: 'Character limit (recommended: 250)' },
     instagram: { limit: 2200, description: 'Caption limit' },
-    youtube: { limit: 5000, description: 'Description limit' }
+    youtube: { limit: 5000, description: 'Description limit' },
+    tiktok: { limit: 2200, description: 'Caption limit' },
+    threads: { limit: 500, description: 'Character limit' },
+    bluesky: { limit: 300, description: 'Character limit' }
   }
 
   return (
