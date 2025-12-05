@@ -6,12 +6,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { 
-  ArrowLeft, 
-  Loader2, 
-  Download, 
-  Send, 
-  Wand2, 
+import {
+  ArrowLeft,
+  Loader2,
+  Download,
+  Send,
+  Wand2,
   Upload,
   Sparkles,
   Crop as CropIcon,
@@ -30,7 +30,8 @@ import {
   Droplet,
   Link as LinkIcon,
   ChevronDown,
-  X
+  X,
+  Video
 } from 'lucide-react'
 import Link from 'next/link'
 import { useToast } from '@/hooks/use-toast'
@@ -55,6 +56,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
+import { VideoExporter } from '@/components/template-editor'
 
 interface TemplateField {
   id: string
@@ -94,6 +96,7 @@ export default function GenerateGraphicPage({ params }: { params: { id: string }
   const [isGenerating, setIsGenerating] = useState(false)
   const [generatedImageUrl, setGeneratedImageUrl] = useState<string>('')
   const [previewError, setPreviewError] = useState<string | null>(null)
+  const [showVideoExporter, setShowVideoExporter] = useState(false)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const { toast } = useToast()
   const router = useRouter()
@@ -548,93 +551,126 @@ export default function GenerateGraphicPage({ params }: { params: { id: string }
         </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Form */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Fill Template Data</CardTitle>
-            <CardDescription>Enter values for each field</CardDescription>
+      <div className="grid gap-4 lg:gap-6 lg:grid-cols-2">
+        {/* Form - Mobile Optimized */}
+        <Card className="overflow-hidden">
+          <CardHeader className="pb-3 sm:pb-6">
+            <CardTitle className="text-lg sm:text-xl">Fill Template Data</CardTitle>
+            <CardDescription className="text-sm">Enter values for each field</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
-            {template.fields.map((field) => (
-              <div key={field.id} className="space-y-2">
-                <Label htmlFor={field.fieldName}>
-                  {field.fieldLabel}
-                  {field.isRequired && <span className="text-red-500 ml-1">*</span>}
-                </Label>
-                {field.fieldType === 'image' ? (
-                  <div className="space-y-2">
-                    {imagePreviews[field.fieldName] ? (
-                      <div className="space-y-2">
-                        <div className="relative w-full h-32 bg-gray-100 rounded-lg overflow-hidden">
-                          <img
-                            src={imagePreviews[field.fieldName]}
-                            alt={field.fieldLabel}
-                            className="w-full h-full object-contain"
-                          />
-                        </div>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleImageFieldChange(field.fieldName, null)}
-                        >
-                          Remove Image
-                        </Button>
-                      </div>
-                    ) : (
-                      <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center">
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0]
-                            if (file) handleImageFieldChange(field.fieldName, file)
-                          }}
-                          className="hidden"
-                          id={`image-${field.fieldName}`}
-                        />
-                        <label
-                          htmlFor={`image-${field.fieldName}`}
-                          className="cursor-pointer"
-                        >
-                          <Upload className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-                          <p className="text-sm text-gray-600">Click to upload image</p>
-                        </label>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <Input
-                    id={field.fieldName}
-                    type={field.fieldType}
-                    value={formData[field.fieldName] || ''}
-                    onChange={(e) => setFormData({
-                      ...formData,
-                      [field.fieldName]: e.target.value
-                    })}
-                    placeholder={field.defaultValue || `Enter ${field.fieldLabel.toLowerCase()}`}
-                    required={field.isRequired}
-                  />
-                )}
-              </div>
-            ))}
+          <CardContent className="space-y-3 sm:space-y-4 px-4 sm:px-6">
+            {/* Group fields by type for better organization */}
+            {(() => {
+              const textFields = template.fields.filter(f => f.fieldType === 'text' || f.fieldType === 'number')
+              const imageFields = template.fields.filter(f => f.fieldType === 'image' || f.fieldType === 'logo')
+              const otherFields = template.fields.filter(f => !['text', 'number', 'image', 'logo'].includes(f.fieldType))
 
-            <Button
-              onClick={generateGraphic}
-              disabled={isGenerating}
-              className="w-full mt-6"
-            >
+              return (
+                <>
+                  {/* Text Fields Section */}
+                  {textFields.length > 0 && (
+                    <Collapsible defaultOpen className="border rounded-lg">
+                      <CollapsibleTrigger className="flex items-center justify-between w-full p-3 sm:p-4 hover:bg-gray-50 rounded-t-lg">
+                        <span className="font-medium text-sm sm:text-base">Text Fields ({textFields.length})</span>
+                        <ChevronDown className="w-4 h-4 transition-transform" />
+                      </CollapsibleTrigger>
+                      <CollapsibleContent className="p-3 sm:p-4 pt-0 space-y-3">
+                        {textFields.map((field) => (
+                          <div key={field.id} className="space-y-1.5">
+                            <Label htmlFor={field.fieldName} className="text-sm font-medium">
+                              {field.fieldLabel}
+                              {field.isRequired && <span className="text-red-500 ml-1">*</span>}
+                            </Label>
+                            <Input
+                              id={field.fieldName}
+                              type={field.fieldType}
+                              value={formData[field.fieldName] || ''}
+                              onChange={(e) => setFormData({ ...formData, [field.fieldName]: e.target.value })}
+                              placeholder={field.defaultValue || `Enter ${field.fieldLabel.toLowerCase()}`}
+                              required={field.isRequired}
+                              className="h-11 sm:h-10 text-base sm:text-sm"
+                            />
+                          </div>
+                        ))}
+                      </CollapsibleContent>
+                    </Collapsible>
+                  )}
+
+                  {/* Image Fields Section */}
+                  {imageFields.length > 0 && (
+                    <Collapsible defaultOpen className="border rounded-lg">
+                      <CollapsibleTrigger className="flex items-center justify-between w-full p-3 sm:p-4 hover:bg-gray-50 rounded-t-lg">
+                        <span className="font-medium text-sm sm:text-base">Images ({imageFields.length})</span>
+                        <ChevronDown className="w-4 h-4 transition-transform" />
+                      </CollapsibleTrigger>
+                      <CollapsibleContent className="p-3 sm:p-4 pt-0 space-y-3">
+                        {imageFields.map((field) => (
+                          <div key={field.id} className="space-y-1.5">
+                            <Label className="text-sm font-medium">
+                              {field.fieldLabel}
+                              {field.isRequired && <span className="text-red-500 ml-1">*</span>}
+                            </Label>
+                            {imagePreviews[field.fieldName] ? (
+                              <div className="space-y-2">
+                                <div className="relative w-full h-24 sm:h-32 bg-gray-100 rounded-lg overflow-hidden">
+                                  <img src={imagePreviews[field.fieldName]} alt={field.fieldLabel} className="w-full h-full object-contain" />
+                                </div>
+                                <Button type="button" variant="outline" size="sm" onClick={() => handleImageFieldChange(field.fieldName, null)} className="w-full sm:w-auto">
+                                  Remove Image
+                                </Button>
+                              </div>
+                            ) : (
+                              <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center active:bg-gray-50 transition-colors">
+                                <input type="file" accept="image/*" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleImageFieldChange(field.fieldName, file) }} className="hidden" id={`image-${field.fieldName}`} />
+                                <label htmlFor={`image-${field.fieldName}`} className="cursor-pointer block">
+                                  <Upload className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                                  <p className="text-sm text-gray-600">Tap to upload image</p>
+                                </label>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </CollapsibleContent>
+                    </Collapsible>
+                  )}
+
+                  {/* Other Fields Section */}
+                  {otherFields.length > 0 && (
+                    <Collapsible defaultOpen className="border rounded-lg">
+                      <CollapsibleTrigger className="flex items-center justify-between w-full p-3 sm:p-4 hover:bg-gray-50 rounded-t-lg">
+                        <span className="font-medium text-sm sm:text-base">Other Fields ({otherFields.length})</span>
+                        <ChevronDown className="w-4 h-4 transition-transform" />
+                      </CollapsibleTrigger>
+                      <CollapsibleContent className="p-3 sm:p-4 pt-0 space-y-3">
+                        {otherFields.map((field) => (
+                          <div key={field.id} className="space-y-1.5">
+                            <Label htmlFor={field.fieldName} className="text-sm font-medium">
+                              {field.fieldLabel}
+                              {field.isRequired && <span className="text-red-500 ml-1">*</span>}
+                            </Label>
+                            <Input
+                              id={field.fieldName}
+                              type="text"
+                              value={formData[field.fieldName] || ''}
+                              onChange={(e) => setFormData({ ...formData, [field.fieldName]: e.target.value })}
+                              placeholder={field.defaultValue || `Enter ${field.fieldLabel.toLowerCase()}`}
+                              required={field.isRequired}
+                              className="h-11 sm:h-10 text-base sm:text-sm"
+                            />
+                          </div>
+                        ))}
+                      </CollapsibleContent>
+                    </Collapsible>
+                  )}
+                </>
+              )
+            })()}
+
+            <Button onClick={generateGraphic} disabled={isGenerating} className="w-full mt-4 h-12 sm:h-10 text-base sm:text-sm">
               {isGenerating ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Generating...
-                </>
+                <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Generating...</>
               ) : (
-                <>
-                  <Wand2 className="w-4 h-4 mr-2" />
-                  Generate Graphic
-                </>
+                <><Wand2 className="w-4 h-4 mr-2" />Generate Graphic</>
               )}
             </Button>
           </CardContent>
@@ -990,12 +1026,18 @@ export default function GenerateGraphicPage({ params }: { params: { id: string }
               </div>
 
               {generatedImageUrl && (
-                <div className="flex gap-2">
-                  <Button onClick={downloadGraphic} variant="outline" className="flex-1">
-                    <Download className="w-4 h-4 mr-2" />
-                    Download
-                  </Button>
-                  <Button onClick={schedulePost} className="flex-1">
+                <div className="space-y-2">
+                  <div className="flex gap-2">
+                    <Button onClick={downloadGraphic} variant="outline" className="flex-1">
+                      <Download className="w-4 h-4 mr-2" />
+                      Download PNG
+                    </Button>
+                    <Button onClick={() => setShowVideoExporter(true)} variant="outline" className="flex-1">
+                      <Video className="w-4 h-4 mr-2" />
+                      Export Video
+                    </Button>
+                  </div>
+                  <Button onClick={schedulePost} className="w-full">
                     <Send className="w-4 h-4 mr-2" />
                     Schedule Post
                   </Button>
@@ -1005,6 +1047,17 @@ export default function GenerateGraphicPage({ params }: { params: { id: string }
           </CardContent>
         </Card>
       </div>
+
+      {/* Video Exporter Dialog */}
+      <VideoExporter
+        canvasRef={canvasRef}
+        templateName={template?.name}
+        width={template?.width || 1080}
+        height={template?.height || 1080}
+        fields={template?.fields || []}
+        isOpen={showVideoExporter}
+        onClose={() => setShowVideoExporter(false)}
+      />
     </div>
   )
 }
