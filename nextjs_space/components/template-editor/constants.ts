@@ -139,8 +139,26 @@ export const DEFAULT_FIELD: Partial<import('./types').TemplateField> = {
   textAlign: 'center',
   opacity: 1,
   rotation: 0,
+  zIndex: 0,
   visible: true,
-  cornerStyle: 'sharp',
+  // Text styling
+  letterSpacing: 0,
+  lineHeight: 1.2,
+  textTransform: 'none',
+  // Shadow
+  shadowEnabled: false,
+  shadowColor: '#000000',
+  shadowBlur: 4,
+  shadowOffsetX: 2,
+  shadowOffsetY: 2,
+  // Border
+  borderRadius: 0,
+  borderWidth: 0,
+  borderColor: '#000000',
+  // Blend & effects
   blendMode: 'normal',
+  effectIntensity: 50,
+  // Legacy
+  cornerStyle: 'sharp',
 }
 

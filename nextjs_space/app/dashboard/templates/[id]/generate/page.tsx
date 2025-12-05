@@ -36,7 +36,9 @@ import {
 import Link from 'next/link'
 import { useToast } from '@/hooks/use-toast'
 import { useRouter } from 'next/navigation'
-import { loadImageSafely, toCanvasSafeUrl, isCanvasSafeUrl } from '@/lib/image-url-validator'
+import { loadImageSafely as loadImageSafelyOld, toCanvasSafeUrl, isCanvasSafeUrl } from '@/lib/image-url-validator'
+import { renderTextField, renderImageField, loadImageSafely, calculateTextPosition } from '@/lib/template-renderer'
+import type { TemplateField as TemplateFieldType } from '@/components/template-editor/types'
 import {
   Popover,
   PopoverContent,
@@ -309,41 +311,38 @@ export default function GenerateGraphicPage({ params }: { params: { id: string }
         ctx.filter = `blur(${blur}px)`
       }
 
-      // Draw fields
+      // Draw fields using shared renderer for consistent positioning
       for (const field of template.fields) {
-        if (field.fieldType === 'image') {
-          // Draw image field if uploaded
+        // Convert to TemplateFieldType with defaults and apply preview opacity
+        const typedField = {
+          ...field,
+          opacity: (field.opacity || 1.0) * (opacity / 100),
+          rotation: (field as any).rotation || 0,
+          zIndex: (field as any).zIndex || 0,
+          letterSpacing: (field as any).letterSpacing || 0,
+          lineHeight: (field as any).lineHeight || 1.2,
+          textTransform: (field as any).textTransform || 'none',
+          shadowEnabled: (field as any).shadowEnabled || false,
+          shadowColor: (field as any).shadowColor || '#000000',
+          shadowBlur: (field as any).shadowBlur || 4,
+          shadowOffsetX: (field as any).shadowOffsetX || 2,
+          shadowOffsetY: (field as any).shadowOffsetY || 2,
+          borderRadius: (field as any).borderRadius || 0,
+          borderWidth: (field as any).borderWidth || 0,
+          borderColor: (field as any).borderColor || '#000000',
+          blendMode: (field as any).blendMode || 'normal',
+          effectIntensity: (field as any).effectIntensity || 50,
+        } as TemplateFieldType
+
+        if (field.fieldType === 'image' || field.fieldType === 'logo') {
           const imagePreview = imagePreviews[field.fieldName]
           if (imagePreview) {
-            const fieldImg = await loadImageSafely(imagePreview)
-
-            ctx.save()
-            ctx.globalAlpha = (field.opacity || 1.0) * (opacity / 100)
-            ctx.drawImage(fieldImg, field.x, field.y, field.width, field.height)
-            ctx.restore()
+            await renderImageField(ctx, typedField, imagePreview, template.id)
           }
         } else {
-          // Draw text field if filled
           const value = formData[field.fieldName]
           if (value) {
-            ctx.save()
-            ctx.globalCompositeOperation = 'source-over'
-            ctx.globalAlpha = (field.opacity || 1.0) * (opacity / 100)
-
-            // Set font properties
-            ctx.font = `${field.fontWeight} ${field.fontSize}px ${field.fontFamily}`
-            ctx.fillStyle = field.fontColor
-            ctx.textAlign = field.textAlign as CanvasTextAlign
-
-            let x = field.x
-            if (field.textAlign === 'center') {
-              x = field.x + field.width / 2
-            } else if (field.textAlign === 'right') {
-              x = field.x + field.width
-            }
-
-            ctx.fillText(value, x, field.y + field.fontSize)
-            ctx.restore()
+            renderTextField(ctx, typedField, value)
           }
         }
       }
@@ -403,44 +402,39 @@ export default function GenerateGraphicPage({ params }: { params: { id: string }
       const img = await loadImageSafely(`/api/templates/${template.id}/image`)
       ctx.drawImage(img, 0, 0, template.width, template.height)
 
-      // Draw fields
+      // Draw fields using shared renderer for consistent positioning
       for (const field of template.fields) {
-        if (field.fieldType === 'image') {
-          // Draw image field
+        // Convert to TemplateFieldType with defaults for missing properties
+        const typedField = {
+          ...field,
+          rotation: (field as any).rotation || 0,
+          zIndex: (field as any).zIndex || 0,
+          letterSpacing: (field as any).letterSpacing || 0,
+          lineHeight: (field as any).lineHeight || 1.2,
+          textTransform: (field as any).textTransform || 'none',
+          shadowEnabled: (field as any).shadowEnabled || false,
+          shadowColor: (field as any).shadowColor || '#000000',
+          shadowBlur: (field as any).shadowBlur || 4,
+          shadowOffsetX: (field as any).shadowOffsetX || 2,
+          shadowOffsetY: (field as any).shadowOffsetY || 2,
+          borderRadius: (field as any).borderRadius || 0,
+          borderWidth: (field as any).borderWidth || 0,
+          borderColor: (field as any).borderColor || '#000000',
+          blendMode: (field as any).blendMode || 'normal',
+          effectIntensity: (field as any).effectIntensity || 50,
+        } as TemplateFieldType
+
+        if (field.fieldType === 'image' || field.fieldType === 'logo') {
+          // Draw image field using shared renderer
           const imagePreview = imagePreviews[field.fieldName]
           if (imagePreview) {
-            // Load image safely (auto-handles CORS & proxy)
-            const fieldImg = await loadImageSafely(imagePreview)
-
-            ctx.save()
-            ctx.globalAlpha = field.opacity || 1.0
-            ctx.drawImage(fieldImg, field.x, field.y, field.width, field.height)
-            ctx.restore()
+            await renderImageField(ctx, typedField, imagePreview, template.id)
           }
         } else {
-          // Draw text field
+          // Draw text field using shared renderer
           const value = formData[field.fieldName]
           if (!value) continue
-
-          // Reset canvas state for text rendering
-          ctx.save()
-          ctx.globalCompositeOperation = 'source-over'
-          ctx.globalAlpha = field.opacity || 1.0
-
-          // Set font properties
-          ctx.font = `${field.fontWeight} ${field.fontSize}px ${field.fontFamily}`
-          ctx.fillStyle = field.fontColor
-          ctx.textAlign = field.textAlign as CanvasTextAlign
-
-          let x = field.x
-          if (field.textAlign === 'center') {
-            x = field.x + field.width / 2
-          } else if (field.textAlign === 'right') {
-            x = field.x + field.width
-          }
-
-          ctx.fillText(value, x, field.y + field.fontSize)
-          ctx.restore()
+          renderTextField(ctx, typedField, value)
         }
       }
 
@@ -559,11 +553,13 @@ export default function GenerateGraphicPage({ params }: { params: { id: string }
             <CardDescription className="text-sm">Enter values for each field</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3 sm:space-y-4 px-4 sm:px-6">
-            {/* Group fields by type for better organization */}
+            {/* Group fields by type for better organization, sorted by Y position (top-to-bottom) */}
             {(() => {
-              const textFields = template.fields.filter(f => f.fieldType === 'text' || f.fieldType === 'number')
-              const imageFields = template.fields.filter(f => f.fieldType === 'image' || f.fieldType === 'logo')
-              const otherFields = template.fields.filter(f => !['text', 'number', 'image', 'logo'].includes(f.fieldType))
+              // Sort by Y position for logical top-to-bottom form flow
+              const sortByPosition = (a: TemplateField, b: TemplateField) => a.y - b.y
+              const textFields = template.fields.filter(f => f.fieldType === 'text' || f.fieldType === 'number').sort(sortByPosition)
+              const imageFields = template.fields.filter(f => f.fieldType === 'image' || f.fieldType === 'logo').sort(sortByPosition)
+              const otherFields = template.fields.filter(f => !['text', 'number', 'image', 'logo'].includes(f.fieldType)).sort(sortByPosition)
 
               return (
                 <>

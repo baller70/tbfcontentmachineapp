@@ -151,6 +151,23 @@ export default function TemplateToolbar({
           <>
             <div className={cn('bg-gray-700', isVertical ? 'h-px w-full my-1' : 'w-px h-auto mx-1')} />
             <div className={cn('flex gap-1', isVertical ? 'flex-col' : 'flex-row')}>
+              {/* Layer controls */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon" onClick={onMoveLayerUp} className="w-11 h-11 text-gray-300 hover:text-white">
+                    <ChevronUp className="w-5 h-5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side={isVertical ? 'right' : 'bottom'}><p>Bring Forward</p></TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon" onClick={onMoveLayerDown} className="w-11 h-11 text-gray-300 hover:text-white">
+                    <ChevronDown className="w-5 h-5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side={isVertical ? 'right' : 'bottom'}><p>Send Backward</p></TooltipContent>
+              </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button variant="ghost" size="icon" onClick={onDuplicateField} className="w-11 h-11 text-gray-300 hover:text-white">

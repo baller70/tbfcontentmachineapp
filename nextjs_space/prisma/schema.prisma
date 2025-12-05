@@ -368,6 +368,27 @@ model TemplateField {
   imagePreview String?
   visible      Boolean  @default(true)
   videoPreview String?
+  // New fields for advanced styling
+  rotation     Float    @default(0)
+  zIndex       Int      @default(0)
+  blendMode    String   @default("normal")
+  // Shadow properties
+  shadowEnabled Boolean @default(false)
+  shadowColor   String  @default("#000000")
+  shadowBlur    Float   @default(4)
+  shadowOffsetX Float   @default(2)
+  shadowOffsetY Float   @default(2)
+  // Text styling
+  letterSpacing Float   @default(0)
+  lineHeight    Float   @default(1.2)
+  textTransform String  @default("none")
+  // Shape properties (for image fields)
+  borderRadius  Float   @default(0)
+  borderWidth   Float   @default(0)
+  borderColor   String  @default("#000000")
+  // Effects
+  effectType    String?
+  effectIntensity Float @default(50)
   template     Template @relation(fields: [templateId], references: [id], onDelete: Cascade)
 }
 

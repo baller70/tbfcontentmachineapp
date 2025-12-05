@@ -19,10 +19,30 @@ export interface TemplateField {
   defaultValue?: string
   isRequired: boolean
   order: number
+  zIndex: number
   visible?: boolean
   imagePreview?: string
   videoPreview?: string
-  // Visual effects
+  // Text styling
+  letterSpacing: number
+  lineHeight: number
+  textTransform: 'none' | 'uppercase' | 'lowercase' | 'capitalize'
+  // Shadow properties
+  shadowEnabled: boolean
+  shadowColor: string
+  shadowBlur: number
+  shadowOffsetX: number
+  shadowOffsetY: number
+  // Border/shape properties
+  borderRadius: number
+  borderWidth: number
+  borderColor: string
+  // Blend mode
+  blendMode: string
+  // Effect
+  effectType?: string
+  effectIntensity: number
+  // Legacy visual effects (for backwards compatibility)
   photoEffect?: string
   filter?: string
   texture?: string
@@ -33,7 +53,6 @@ export interface TemplateField {
   outlineColor?: string
   outlineWidth?: number
   blur?: number
-  blendMode?: string
   backgroundColor?: string
   fill?: string
   shadow?: {
@@ -48,7 +67,6 @@ export interface TemplateField {
     width: number
     height: number
   }
-  // Effect-specific
   effectValue?: string
   effectFilePath?: string
 }

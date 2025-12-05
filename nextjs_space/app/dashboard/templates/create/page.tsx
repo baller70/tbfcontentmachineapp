@@ -247,6 +247,8 @@ export default function CreateTemplatePage() {
               selectedFieldId={selectedFieldId}
               onDeleteField={() => selectedFieldId && deleteField(selectedFieldId)}
               onDuplicateField={() => selectedFieldId && duplicateField(selectedFieldId)}
+              onMoveLayerUp={() => selectedFieldId && moveFieldLayer(selectedFieldId, 'up')}
+              onMoveLayerDown={() => selectedFieldId && moveFieldLayer(selectedFieldId, 'down')}
             />
           </div>
           
