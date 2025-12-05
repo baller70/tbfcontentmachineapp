@@ -924,7 +924,8 @@ function Step1ChooseTemplate({ wizardState, setWizardState, categories, filtered
           <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
             {categories.map((category: string) => {
               const colors = getFolderColor(category)
-              const categoryTemplates = filteredTemplates.filter((t: Template) => t.category === category)
+              // FIX: Use templates (full list) instead of filteredTemplates to count templates per category
+              const categoryTemplates = templates.filter((t: Template) => t.category === category)
               
               return (
                 <button
