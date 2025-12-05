@@ -8,13 +8,26 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'
+import { Progress } from '@/components/ui/progress'
 import { useToast } from '@/hooks/use-toast'
 import { DropboxFolderPicker } from '@/components/dropbox-folder-picker'
-import { FolderOpen, FileText, Calendar, Sparkles, Download, Loader2, CheckCircle, AlertCircle, Wand2, Video, Image as ImageIcon } from 'lucide-react'
+import { FolderOpen, FileText, Calendar, Sparkles, Download, Loader2, CheckCircle, AlertCircle, Wand2, Video, Image as ImageIcon, HelpCircle, Copy, ExternalLink, RefreshCw, XCircle, TrendingUp } from 'lucide-react'
+import { RateLimitIndicator } from '@/components/rate-limit-indicator'
 
 interface Profile {
   id: string
   name: string
+  lateProfileId?: string
+  platformSettings?: PlatformSetting[]
+}
+
+interface PlatformSetting {
+  id: string
+  platform: string
+  isConnected: boolean
+  platformId?: string
+  platformUsername?: string
 }
 
 interface MediaFile {
@@ -63,6 +76,12 @@ export default function BulkScheduleCSVPage() {
 
   // Step 5: Results
   const [results, setResults] = useState<any>(null)
+  const [postCreationProgress, setPostCreationProgress] = useState({ current: 0, total: 0, currentFile: '' })
+
+  // Enhancement states
+  const [enhancingPrompt, setEnhancingPrompt] = useState(false)
+  const [connectedPlatforms, setConnectedPlatforms] = useState<string[]>([])
+  const [rateLimitWarning, setRateLimitWarning] = useState<{ canPost: boolean; blockedPlatforms: string[] }>({ canPost: true, blockedPlatforms: [] })
 
   const platforms = [
     { id: 'instagram', name: 'Instagram' },
@@ -80,16 +99,18 @@ export default function BulkScheduleCSVPage() {
       try {
         const profilesRes = await fetch('/api/profiles')
         const profilesData = await profilesRes.json()
-        
+
         // Handle profiles response - API returns { profiles: [...] }
-        const profilesArray = Array.isArray(profilesData) 
-          ? profilesData 
+        const profilesArray = Array.isArray(profilesData)
+          ? profilesData
           : (profilesData?.profiles || [])
-        
+
         setProfiles(profilesArray)
-        
+
         if (profilesArray.length > 0) {
           setSelectedProfileId(profilesArray[0].id)
+          // Set connected platforms for the first profile
+          updateConnectedPlatforms(profilesArray[0])
         }
       } catch (error) {
         console.error('Error loading profiles:', error)
@@ -102,6 +123,32 @@ export default function BulkScheduleCSVPage() {
     }
     loadProfiles()
   }, [toast])
+
+  // Update connected platforms when profile changes
+  const updateConnectedPlatforms = (profile: Profile) => {
+    if (!profile?.platformSettings) {
+      setConnectedPlatforms([])
+      return
+    }
+    const connected = profile.platformSettings
+      .filter((ps: PlatformSetting) => ps.isConnected && ps.platformId && !['instagram', 'facebook', 'linkedin', 'threads', 'tiktok', 'bluesky', 'youtube', 'twitter'].includes(ps.platformId.toLowerCase()))
+      .map((ps: PlatformSetting) => ps.platform.toLowerCase())
+    setConnectedPlatforms(connected)
+  }
+
+  // Handle profile change
+  const handleProfileChange = (profileId: string) => {
+    setSelectedProfileId(profileId)
+    const profile = profiles.find(p => p.id === profileId)
+    if (profile) {
+      updateConnectedPlatforms(profile)
+      // Clear selected platforms that aren't connected to new profile
+      setSelectedPlatforms(prev => prev.filter(p => {
+        const setting = profile.platformSettings?.find((ps: PlatformSetting) => ps.platform.toLowerCase() === p.toLowerCase())
+        return setting?.isConnected && setting?.platformId && !['instagram', 'facebook', 'linkedin', 'threads', 'tiktok', 'bluesky', 'youtube', 'twitter'].includes(setting.platformId.toLowerCase())
+      }))
+    }
+  }
 
   // Load media files when folder is selected
   useEffect(() => {
@@ -145,6 +192,61 @@ export default function BulkScheduleCSVPage() {
         ? prev.filter(p => p !== platformId)
         : [...prev, platformId]
     )
+  }
+
+  // Enhancement 1: Enhance AI prompt
+  const handleEnhancePrompt = async () => {
+    if (!aiPrompt.trim()) {
+      toast({
+        title: 'Error',
+        description: 'Please enter a prompt to enhance',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    setEnhancingPrompt(true)
+    try {
+      const response = await fetch('/api/bulk-csv/enhance-prompt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: aiPrompt,
+          platforms: selectedPlatforms.length > 0 ? selectedPlatforms : ['instagram', 'facebook', 'tiktok'],
+        }),
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to enhance prompt')
+      }
+
+      const data = await response.json()
+      setAiPrompt(data.enhancedPrompt)
+
+      toast({
+        title: 'Prompt Enhanced',
+        description: 'Your prompt has been improved with AI suggestions',
+      })
+    } catch (error: any) {
+      console.error('Error enhancing prompt:', error)
+      toast({
+        title: 'Enhancement Failed',
+        description: error.message || 'Could not enhance prompt',
+        variant: 'destructive',
+      })
+    } finally {
+      setEnhancingPrompt(false)
+    }
+  }
+
+  // Copy post ID to clipboard
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text)
+    toast({
+      title: 'Copied',
+      description: 'Post ID copied to clipboard',
+    })
   }
 
   const handleNext = async () => {
@@ -322,9 +424,27 @@ export default function BulkScheduleCSVPage() {
 
   const handleComplete = async () => {
     setLoading(true)
+    setStep(5) // Go to step 5 immediately to show progress
+    setPostCreationProgress({ current: 0, total: generatedPosts.length, currentFile: '' })
+
     try {
       console.log(`📤 Submitting ${generatedPosts.length} posts with generated content`)
-      
+
+      // Simulate progress updates (since the bulk API doesn't stream progress)
+      const progressInterval = setInterval(() => {
+        setPostCreationProgress(prev => {
+          if (prev.current < prev.total - 1) {
+            const nextIndex = prev.current + 1
+            return {
+              current: nextIndex,
+              total: prev.total,
+              currentFile: generatedPosts[nextIndex]?.fileName || '',
+            }
+          }
+          return prev
+        })
+      }, 1500) // Update every 1.5 seconds
+
       const response = await fetch('/api/bulk-csv/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -347,6 +467,9 @@ export default function BulkScheduleCSVPage() {
         }),
       })
 
+      clearInterval(progressInterval)
+      setPostCreationProgress({ current: generatedPosts.length, total: generatedPosts.length, currentFile: '' })
+
       if (!response.ok) {
         const error = await response.json()
         throw new Error(error.error || 'Failed to process bulk schedule')
@@ -354,14 +477,26 @@ export default function BulkScheduleCSVPage() {
 
       const data = await response.json()
       setResults(data)
-      setStep(5) // Changed to step 5 for results
-      
+
       toast({
-        title: 'Success',
-        description: `✅ ${data.valid || 0} posts scheduled successfully`,
+        title: data.invalid > 0 ? 'Partially Complete' : 'Success',
+        description: `✅ ${data.valid || 0} of ${data.total || 0} posts scheduled successfully`,
+        variant: data.invalid > 0 ? 'default' : 'default',
       })
     } catch (error: any) {
       console.error('❌ Error completing bulk schedule:', error)
+      setResults({
+        success: false,
+        total: generatedPosts.length,
+        valid: 0,
+        invalid: generatedPosts.length,
+        results: generatedPosts.map((p, i) => ({
+          rowIndex: i + 1,
+          ok: false,
+          file: p.fileName,
+          errors: [error.message || 'Failed to create post'],
+        })),
+      })
       toast({
         title: 'Error',
         description: error.message || 'Failed to complete bulk schedule',
@@ -369,6 +504,7 @@ export default function BulkScheduleCSVPage() {
       })
     } finally {
       setLoading(false)
+      setPostCreationProgress({ current: 0, total: 0, currentFile: '' })
     }
   }
 
@@ -460,19 +596,38 @@ export default function BulkScheduleCSVPage() {
           </h2>
           
           <div className="space-y-6">
-            {/* AI Prompt Input */}
+            {/* AI Prompt Input with Enhance Button */}
             <div>
-              <Label htmlFor="ai-prompt">AI Content Instructions</Label>
+              <div className="flex items-center justify-between mb-2">
+                <Label htmlFor="ai-prompt">AI Content Instructions</Label>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleEnhancePrompt}
+                  disabled={enhancingPrompt || !aiPrompt.trim()}
+                >
+                  {enhancingPrompt ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Enhancing...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="mr-2 h-4 w-4" />
+                      Enhance Prompt
+                    </>
+                  )}
+                </Button>
+              </div>
               <Textarea
                 id="ai-prompt"
                 placeholder="Example: Analyze the image/video and create an inspiring basketball post with player details, game highlights, and motivational message. Include relevant hashtags."
                 value={aiPrompt}
                 onChange={(e) => setAiPrompt(e.target.value)}
                 rows={4}
-                className="mt-2"
               />
               <p className="text-xs text-muted-foreground mt-1">
-                💡 The AI will analyze each {mediaFiles.some(f => /\.(mp4|mov|avi|webm)$/i.test(f.name)) ? 'video/image' : 'image'} and generate unique content based on these instructions
+                💡 The AI will analyze each {mediaFiles.some(f => /\.(mp4|mov|avi|webm)$/i.test(f.name)) ? 'video/image' : 'image'} and generate unique content based on these instructions. Click "Enhance Prompt" to improve your instructions with AI.
               </p>
             </div>
 
@@ -582,12 +737,12 @@ export default function BulkScheduleCSVPage() {
       {step === 3 && (
         <Card className="p-6">
           <h2 className="text-2xl font-semibold mb-4">Step 3: Select Profile & Platforms</h2>
-          
+
           <div className="space-y-6">
             {/* Profile Selection */}
             <div>
               <Label>Business Profile</Label>
-              <Select value={selectedProfileId} onValueChange={setSelectedProfileId}>
+              <Select value={selectedProfileId} onValueChange={handleProfileChange}>
                 <SelectTrigger className="mt-2">
                   <SelectValue placeholder="Select profile" />
                 </SelectTrigger>
@@ -601,30 +756,91 @@ export default function BulkScheduleCSVPage() {
               </Select>
             </div>
 
-            {/* Platform Selection */}
+            {/* Platform Selection with Connection Status */}
             <div>
               <Label>Target Platforms</Label>
+              <p className="text-xs text-muted-foreground mb-2">
+                Only platforms with valid Late API connections can be selected. Platforms without proper account IDs are disabled.
+              </p>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-2">
-                {platforms.map((platform) => (
-                  <div key={platform.id} className="flex items-center space-x-2">
-                    <Checkbox
-                      id={platform.id}
-                      checked={selectedPlatforms.includes(platform.id)}
-                      onCheckedChange={() => handlePlatformToggle(platform.id)}
-                    />
-                    <label htmlFor={platform.id} className="text-sm font-medium cursor-pointer">
-                      {platform.name}
-                    </label>
-                  </div>
-                ))}
+                {platforms.map((platform) => {
+                  const selectedProfile = profiles.find(p => p.id === selectedProfileId)
+                  const platformSetting = selectedProfile?.platformSettings?.find(
+                    (ps: PlatformSetting) => ps.platform.toLowerCase() === platform.id.toLowerCase()
+                  )
+                  const isConnected = platformSetting?.isConnected && platformSetting?.platformId &&
+                    !['instagram', 'facebook', 'linkedin', 'threads', 'tiktok', 'bluesky', 'youtube', 'twitter'].includes(platformSetting.platformId.toLowerCase())
+
+                  return (
+                    <div key={platform.id} className="flex items-center space-x-2">
+                      <Checkbox
+                        id={platform.id}
+                        checked={selectedPlatforms.includes(platform.id)}
+                        onCheckedChange={() => handlePlatformToggle(platform.id)}
+                        disabled={!isConnected}
+                      />
+                      <label
+                        htmlFor={platform.id}
+                        className={`text-sm font-medium cursor-pointer flex items-center gap-1 ${!isConnected ? 'text-muted-foreground line-through' : ''}`}
+                      >
+                        {platform.name}
+                        {!isConnected && (
+                          <span className="text-xs text-yellow-600" title="Not connected to Late API">⚠️</span>
+                        )}
+                      </label>
+                    </div>
+                  )
+                })}
               </div>
+
+              {/* Warning for unconnected platforms */}
+              {selectedPlatforms.length === 0 && (
+                <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <p className="text-sm text-yellow-800 flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4" />
+                    No platforms selected. Please select at least one connected platform.
+                  </p>
+                </div>
+              )}
             </div>
+
+            {/* Rate Limit Status - Show when profile and platforms are selected */}
+            {selectedProfileId && selectedPlatforms.length > 0 && (
+              <div className="space-y-2">
+                <Label className="flex items-center gap-2">
+                  <TrendingUp className="w-4 h-4" />
+                  Rate Limit Status
+                </Label>
+                <RateLimitIndicator
+                  selectedProfileId={selectedProfileId}
+                  selectedPlatforms={selectedPlatforms}
+                  variant="compact"
+                  onStatusChange={(canPost, details) => setRateLimitWarning({ canPost, blockedPlatforms: details.blockedPlatforms })}
+                />
+                {!rateLimitWarning.canPost && (
+                  <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                    <p className="text-sm text-red-800 flex items-center gap-2">
+                      <XCircle className="w-4 h-4" />
+                      <span>
+                        <strong>Warning:</strong> The following platforms have reached their daily limit: {rateLimitWarning.blockedPlatforms.join(', ')}.
+                        Posts to these platforms will fail. Consider removing them or waiting for the limit to reset.
+                      </span>
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Summary */}
             <div className="p-4 bg-muted rounded-lg">
               <p className="text-sm">
                 <strong>Ready to post:</strong> {generatedPosts.length} posts will be published to {selectedPlatforms.length} platform(s)
               </p>
+              {selectedPlatforms.length > 0 && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Selected: {selectedPlatforms.map(p => platforms.find(pl => pl.id === p)?.name).join(', ')}
+                </p>
+              )}
             </div>
           </div>
         </Card>
@@ -721,72 +937,265 @@ export default function BulkScheduleCSVPage() {
                 </div>
               </div>
             )}
+
+            {/* Enhancement 2: Queue Scheduling Explanation */}
+            <Accordion type="single" collapsible className="mt-6">
+              <AccordionItem value="queue-explanation" className="border rounded-lg px-4">
+                <AccordionTrigger className="hover:no-underline">
+                  <div className="flex items-center gap-2 text-sm">
+                    <HelpCircle className="w-4 h-4 text-muted-foreground" />
+                    <span>How does Queue scheduling work?</span>
+                  </div>
+                </AccordionTrigger>
+                <AccordionContent>
+                  <div className="space-y-4 text-sm text-muted-foreground">
+                    <div>
+                      <p className="font-medium text-foreground mb-1">Basic Explanation</p>
+                      <p>Queue scheduling automatically distributes your posts across available time slots based on your selected days and frequency. Posts are scheduled sequentially in chronological order.</p>
+                    </div>
+
+                    <div>
+                      <p className="font-medium text-foreground mb-1">Multiple Series Behavior</p>
+                      <p>If you have multiple series running simultaneously, Queue will interleave posts from different series to avoid scheduling conflicts and maintain balanced distribution across your content calendar.</p>
+                    </div>
+
+                    <div>
+                      <p className="font-medium text-foreground mb-1">Concrete Example</p>
+                      <div className="bg-muted/50 p-3 rounded-md mt-1">
+                        <p className="mb-2">If you have <strong>10 posts</strong>, select <strong>Monday/Wednesday/Friday</strong>, start date <strong>Dec 10</strong>, and <strong>1 post per day</strong>:</p>
+                        <ul className="list-disc list-inside space-y-1">
+                          <li>Dec 10 (Mon) - Post 1</li>
+                          <li>Dec 12 (Wed) - Post 2</li>
+                          <li>Dec 14 (Fri) - Post 3</li>
+                          <li>Dec 17 (Mon) - Post 4</li>
+                          <li>Dec 19 (Wed) - Post 5</li>
+                          <li>...and so on</li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
           </div>
         </Card>
       )}
 
-      {/* Step 5: Results */}
-      {step === 5 && results && (
+      {/* Step 5: Results with Progress and Detailed Breakdown */}
+      {step === 5 && (
         <Card className="p-6">
           <h2 className="text-2xl font-semibold mb-4 flex items-center gap-2">
-            <CheckCircle className="w-6 h-6 text-green-600" />
-            Step 5: Results
+            {loading ? (
+              <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+            ) : results?.invalid > 0 ? (
+              <AlertCircle className="w-6 h-6 text-yellow-600" />
+            ) : (
+              <CheckCircle className="w-6 h-6 text-green-600" />
+            )}
+            Step 5: {loading ? 'Creating Posts...' : 'Results'}
           </h2>
-          
-          <div className="space-y-4">
-            <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
-              <div className="flex items-center gap-4">
-                <CheckCircle className="w-8 h-8 text-green-600" />
-                <div>
-                  <p className="text-lg font-semibold text-green-900">Bulk schedule completed!</p>
-                  <p className="text-sm text-green-700">
-                    ✅ {results.valid || 0} of {results.total || 0} posts scheduled successfully
-                  </p>
-                </div>
-              </div>
-            </div>
 
-            {results.invalid > 0 && (
-              <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-                <p className="text-sm font-medium text-yellow-800">
-                  ⚠️ {results.invalid} post(s) had errors
+          {/* Enhancement 4: Progress Bar During Post Creation */}
+          {loading && postCreationProgress.total > 0 && (
+            <div className="space-y-4 mb-6">
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">
+                  Creating post {postCreationProgress.current} of {postCreationProgress.total}...
+                </span>
+                <span className="font-medium">
+                  {Math.round((postCreationProgress.current / postCreationProgress.total) * 100)}%
+                </span>
+              </div>
+              <Progress value={(postCreationProgress.current / postCreationProgress.total) * 100} className="h-3" />
+              {postCreationProgress.currentFile && (
+                <p className="text-xs text-muted-foreground">
+                  Processing: {postCreationProgress.currentFile}
                 </p>
-              </div>
-            )}
+              )}
+            </div>
+          )}
 
-            {results.results && results.results.length > 0 && (
-              <div>
-                <h3 className="font-semibold mb-2">Detailed Results:</h3>
-                <div className="space-y-2 max-h-96 overflow-y-auto">
-                  {results.results.map((result: any, index: number) => (
-                    <div
-                      key={index}
-                      className={`p-3 rounded-lg border ${
-                        result.ok
-                          ? 'bg-green-50 border-green-200'
-                          : 'bg-red-50 border-red-200'
-                      }`}
-                    >
-                      <p className="text-sm">
-                        Post {index + 1}: {result.ok ? '✅ Success' : '❌ Failed'}
-                        {result.errors && ` - ${result.errors.join(', ')}`}
-                        {result.createdPostId && ` (Post ID: ${result.createdPostId})`}
+          {/* Enhancement 5: Detailed Results Breakdown */}
+          {results && (
+            <div className="space-y-6">
+              {/* Summary Stats Banner */}
+              <div className={`p-4 rounded-lg border ${
+                results.invalid > 0
+                  ? 'bg-yellow-50 border-yellow-200'
+                  : 'bg-green-50 border-green-200'
+              }`}>
+                <div className="flex items-center gap-4">
+                  {results.invalid > 0 ? (
+                    <AlertCircle className="w-10 h-10 text-yellow-600" />
+                  ) : (
+                    <CheckCircle className="w-10 h-10 text-green-600" />
+                  )}
+                  <div>
+                    <p className="text-lg font-semibold">
+                      Successfully created {results.valid || 0} of {results.total || 0} posts
+                    </p>
+                    {results.invalid > 0 && (
+                      <p className="text-sm text-yellow-700">
+                        ⚠️ {results.invalid} post(s) failed - see details below
                       </p>
-                    </div>
-                  ))}
+                    )}
+                  </div>
                 </div>
               </div>
-            )}
 
-            <div className="flex gap-4 mt-6">
-              <Button onClick={handleReset} variant="outline">
-                Schedule More Posts
-              </Button>
-              <Button onClick={() => window.location.href = '/dashboard/post'}>
-                View Series
-              </Button>
+              {/* Successful Posts Table */}
+              {results.results && results.results.filter((r: any) => r.ok).length > 0 && (
+                <div>
+                  <h3 className="font-semibold mb-3 flex items-center gap-2 text-green-700">
+                    <CheckCircle className="w-5 h-5" />
+                    Successful Posts ({results.results.filter((r: any) => r.ok).length})
+                  </h3>
+                  <div className="border rounded-lg overflow-hidden max-h-64 overflow-y-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-green-50 sticky top-0">
+                        <tr>
+                          <th className="px-3 py-2 text-left">#</th>
+                          <th className="px-3 py-2 text-left">File</th>
+                          <th className="px-3 py-2 text-left">Content Preview</th>
+                          <th className="px-3 py-2 text-left">Post ID</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {results.results.filter((r: any) => r.ok).map((result: any, index: number) => (
+                          <tr key={index} className="hover:bg-green-50/50">
+                            <td className="px-3 py-2">{result.rowIndex || index + 1}</td>
+                            <td className="px-3 py-2 font-medium">{result.file || `Post ${index + 1}`}</td>
+                            <td className="px-3 py-2 text-muted-foreground max-w-xs truncate">
+                              {generatedPosts[index]?.content?.substring(0, 50) || '-'}...
+                            </td>
+                            <td className="px-3 py-2">
+                              {result.createdPostId ? (
+                                <div className="flex items-center gap-1">
+                                  <code className="text-xs bg-muted px-1 rounded">{result.createdPostId.substring(0, 12)}...</code>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-6 w-6 p-0"
+                                    onClick={() => copyToClipboard(result.createdPostId)}
+                                  >
+                                    <Copy className="w-3 h-3" />
+                                  </Button>
+                                </div>
+                              ) : '-'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Failed Posts Table */}
+              {results.results && results.results.filter((r: any) => !r.ok).length > 0 && (
+                <div>
+                  <h3 className="font-semibold mb-3 flex items-center gap-2 text-red-700">
+                    <XCircle className="w-5 h-5" />
+                    Failed Posts ({results.results.filter((r: any) => !r.ok).length})
+                  </h3>
+                  <div className="border border-red-200 rounded-lg overflow-hidden max-h-64 overflow-y-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-red-50 sticky top-0">
+                        <tr>
+                          <th className="px-3 py-2 text-left">#</th>
+                          <th className="px-3 py-2 text-left">File</th>
+                          <th className="px-3 py-2 text-left">Error</th>
+                          <th className="px-3 py-2 text-left">Suggested Fix</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {results.results.filter((r: any) => !r.ok).map((result: any, index: number) => (
+                          <tr key={index} className="hover:bg-red-50/50">
+                            <td className="px-3 py-2">{result.rowIndex || index + 1}</td>
+                            <td className="px-3 py-2 font-medium">{result.file || `Post ${index + 1}`}</td>
+                            <td className="px-3 py-2 text-red-700 max-w-xs">
+                              {result.errors?.join(', ') || 'Unknown error'}
+                            </td>
+                            <td className="px-3 py-2 text-muted-foreground text-xs">
+                              {result.errors?.[0]?.includes('account ID')
+                                ? 'Connect platform in Settings'
+                                : result.errors?.[0]?.includes('media')
+                                  ? 'Check media file format'
+                                  : 'Try again or contact support'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="flex flex-wrap gap-3 pt-4 border-t">
+                <Button
+                  variant="outline"
+                  onClick={() => window.open('https://getlate.dev/dashboard/posts', '_blank')}
+                >
+                  <ExternalLink className="w-4 h-4 mr-2" />
+                  View in Late Dashboard
+                </Button>
+
+                {results.invalid > 0 && (
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      // Keep only failed posts and go back to step 4
+                      const failedIndices = results.results
+                        .map((r: any, i: number) => r.ok ? -1 : i)
+                        .filter((i: number) => i >= 0)
+                      const failedPosts = failedIndices.map((i: number) => generatedPosts[i]).filter(Boolean)
+                      if (failedPosts.length > 0) {
+                        setGeneratedPosts(failedPosts)
+                        setResults(null)
+                        setStep(4)
+                        toast({
+                          title: 'Retry Mode',
+                          description: `${failedPosts.length} failed post(s) ready to retry`,
+                        })
+                      }
+                    }}
+                  >
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                    Retry Failed Posts
+                  </Button>
+                )}
+
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    // Download results as CSV
+                    const csvData = [
+                      ['#', 'File', 'Status', 'Post ID', 'Error'].join(','),
+                      ...results.results.map((r: any, i: number) =>
+                        [i + 1, r.file || `Post ${i + 1}`, r.ok ? 'Success' : 'Failed', r.createdPostId || '', r.errors?.join('; ') || ''].join(',')
+                      )
+                    ].join('\n')
+                    const blob = new Blob([csvData], { type: 'text/csv' })
+                    const url = URL.createObjectURL(blob)
+                    const a = document.createElement('a')
+                    a.href = url
+                    a.download = `bulk-schedule-results-${new Date().toISOString().split('T')[0]}.csv`
+                    a.click()
+                    URL.revokeObjectURL(url)
+                  }}
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Download Report
+                </Button>
+
+                <Button onClick={handleReset}>
+                  <RefreshCw className="w-4 h-4 mr-2" />
+                  Create Another Batch
+                </Button>
+              </div>
             </div>
-          </div>
+          )}
         </Card>
       )}
 

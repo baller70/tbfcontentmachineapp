@@ -1,15 +1,16 @@
-
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Progress } from '@/components/ui/progress'
 import {
   BarChart3,
   TrendingUp,
+  TrendingDown,
   Eye,
   Heart,
   Share,
@@ -21,9 +22,34 @@ import {
   Instagram,
   Linkedin,
   Twitter,
-  MessageSquare
+  MessageSquare,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  Activity,
+  PieChart,
+  ArrowUp,
+  ArrowDown,
+  RefreshCw
 } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+  PieChart as RechartsPieChart,
+  Pie,
+  Cell,
+  LineChart,
+  Line,
+  Area,
+  AreaChart
+} from 'recharts'
 
 interface AnalyticsData {
   summary: {
@@ -42,6 +68,20 @@ interface AnalyticsData {
     shares: number
     comments: number
     averageEngagement: number
+    postCount?: number
+  }>
+  profilePerformance?: Array<{
+    profileId: string
+    profileName: string
+    totalPosts: number
+    successRate: number
+    failedPosts: number
+  }>
+  dailyStats?: Array<{
+    date: string
+    posts: number
+    success: number
+    failed: number
   }>
   recentPosts: Array<{
     id: string
@@ -88,30 +128,77 @@ interface PostsData {
   }
 }
 
+interface Profile {
+  id: string
+  name: string
+  lateProfileId?: string
+}
+
 const platformIcons: Record<string, any> = {
   instagram: Instagram,
   linkedin: Linkedin,
   twitter: Twitter,
   tiktok: MessageSquare,
-  youtube: MessageSquare
+  youtube: MessageSquare,
+  facebook: MessageSquare,
+  threads: MessageSquare,
+  bluesky: MessageSquare
+}
+
+const PLATFORM_COLORS: Record<string, string> = {
+  instagram: '#E4405F',
+  facebook: '#1877F2',
+  twitter: '#1DA1F2',
+  linkedin: '#0A66C2',
+  tiktok: '#000000',
+  youtube: '#FF0000',
+  threads: '#000000',
+  bluesky: '#0085FF'
+}
+
+const STATUS_COLORS = {
+  POSTED: '#22c55e',
+  SCHEDULED: '#3b82f6',
+  DRAFT: '#6b7280',
+  FAILED: '#ef4444'
 }
 
 export default function AnalyticsPage() {
   const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null)
   const [postsData, setPostsData] = useState<PostsData | null>(null)
-  const [dateRange, setDateRange] = useState('7d')
+  const [profiles, setProfiles] = useState<Profile[]>([])
+  const [dateRange, setDateRange] = useState('30d')
   const [statusFilter, setStatusFilter] = useState('all')
+  const [selectedProfile, setSelectedProfile] = useState('all')
   const [isLoading, setIsLoading] = useState(true)
+  const [isRefreshing, setIsRefreshing] = useState(false)
   const { toast } = useToast()
 
   useEffect(() => {
+    fetchProfiles()
     fetchAnalytics()
     fetchPosts()
-  }, [dateRange, statusFilter])
+  }, [dateRange, statusFilter, selectedProfile])
+
+  const fetchProfiles = async () => {
+    try {
+      const response = await fetch('/api/profiles')
+      if (response.ok) {
+        const data = await response.json()
+        setProfiles(data.profiles || [])
+      }
+    } catch (error) {
+      console.error('Failed to fetch profiles:', error)
+    }
+  }
 
   const fetchAnalytics = async () => {
     try {
-      const response = await fetch(`/api/analytics?range=${dateRange}`)
+      const params = new URLSearchParams({ range: dateRange })
+      if (selectedProfile !== 'all') {
+        params.append('profileId', selectedProfile)
+      }
+      const response = await fetch(`/api/analytics?${params.toString()}`)
       if (response.ok) {
         const data = await response.json()
         setAnalyticsData(data)
@@ -129,11 +216,11 @@ export default function AnalyticsPage() {
   const fetchPosts = async () => {
     setIsLoading(true)
     try {
-      const params = new URLSearchParams({ limit: '50', offset: '0' })
+      const params = new URLSearchParams({ limit: '100', offset: '0' })
       if (statusFilter !== 'all') {
         params.append('status', statusFilter)
       }
-      
+
       const response = await fetch(`/api/posts?${params.toString()}`)
       if (response.ok) {
         const data = await response.json()
@@ -150,6 +237,85 @@ export default function AnalyticsPage() {
       setIsLoading(false)
     }
   }
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true)
+    await Promise.all([fetchAnalytics(), fetchPosts()])
+    setIsRefreshing(false)
+    toast({
+      title: 'Refreshed',
+      description: 'Analytics data updated'
+    })
+  }
+
+  // Calculate derived data for charts
+  const statusChartData = useMemo(() => {
+    if (!analyticsData?.summary?.postsByStatus) return []
+    return Object.entries(analyticsData.summary.postsByStatus).map(([status, count]) => ({
+      name: status,
+      value: count,
+      color: STATUS_COLORS[status as keyof typeof STATUS_COLORS] || '#6b7280'
+    }))
+  }, [analyticsData])
+
+  const platformChartData = useMemo(() => {
+    if (!postsData?.posts) return []
+    const platformCounts: Record<string, { total: number; success: number; failed: number }> = {}
+    postsData.posts.forEach(post => {
+      post.platforms.forEach(platform => {
+        if (!platformCounts[platform]) {
+          platformCounts[platform] = { total: 0, success: 0, failed: 0 }
+        }
+        platformCounts[platform].total++
+        if (post.status === 'POSTED') platformCounts[platform].success++
+        if (post.status === 'FAILED') platformCounts[platform].failed++
+      })
+    })
+    return Object.entries(platformCounts).map(([platform, data]) => ({
+      platform: platform.charAt(0).toUpperCase() + platform.slice(1),
+      total: data.total,
+      success: data.success,
+      failed: data.failed,
+      successRate: data.total > 0 ? Math.round((data.success / data.total) * 100) : 0
+    }))
+  }, [postsData])
+
+  const dailyPostData = useMemo(() => {
+    if (!postsData?.posts) return []
+    const days = dateRange === '7d' ? 7 : dateRange === '30d' ? 30 : 90
+    const data: { date: string; posts: number; success: number; failed: number }[] = []
+
+    for (let i = days - 1; i >= 0; i--) {
+      const date = new Date()
+      date.setDate(date.getDate() - i)
+      const dateStr = date.toISOString().split('T')[0]
+      data.push({ date: dateStr, posts: 0, success: 0, failed: 0 })
+    }
+
+    postsData.posts.forEach(post => {
+      const postDate = new Date(post.createdAt).toISOString().split('T')[0]
+      const dayData = data.find(d => d.date === postDate)
+      if (dayData) {
+        dayData.posts++
+        if (post.status === 'POSTED') dayData.success++
+        if (post.status === 'FAILED') dayData.failed++
+      }
+    })
+
+    return data.map(d => ({
+      ...d,
+      date: new Date(d.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    }))
+  }, [postsData, dateRange])
+
+  const profilePerformance = useMemo(() => {
+    // This would ideally come from API, for now we'll show placeholder
+    return profiles.map(profile => ({
+      name: profile.name,
+      posts: Math.floor(Math.random() * 50) + 10,
+      successRate: Math.floor(Math.random() * 30) + 70
+    }))
+  }, [profiles])
 
   const formatNumber = (num: number) => {
     if (num >= 1000000) {
@@ -172,19 +338,37 @@ export default function AnalyticsPage() {
   }
 
   const getPlatformIcon = (platform: string) => {
-    const IconComponent = platformIcons[platform] || MessageSquare
+    const IconComponent = platformIcons[platform.toLowerCase()] || MessageSquare
     return <IconComponent className="w-4 h-4" />
   }
+
+  // Calculate totals
+  const totalPosts = postsData?.posts?.length || 0
+  const successfulPosts = postsData?.posts?.filter(p => p.status === 'POSTED').length || 0
+  const failedPosts = postsData?.posts?.filter(p => p.status === 'FAILED').length || 0
+  const scheduledPosts = postsData?.posts?.filter(p => p.status === 'SCHEDULED').length || 0
+  const successRate = totalPosts > 0 ? Math.round((successfulPosts / totalPosts) * 100) : 0
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Analytics & History</h1>
-          <p className="text-gray-600">Track your social media performance and post history</p>
+          <h1 className="text-2xl font-bold text-gray-900">Analytics Dashboard</h1>
+          <p className="text-gray-600">Comprehensive performance metrics and insights</p>
         </div>
-        <div className="flex space-x-3">
+        <div className="flex flex-wrap gap-3">
+          <Select value={selectedProfile} onValueChange={setSelectedProfile}>
+            <SelectTrigger className="w-40">
+              <SelectValue placeholder="All Profiles" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Profiles</SelectItem>
+              {profiles.map(profile => (
+                <SelectItem key={profile.id} value={profile.id}>{profile.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Select value={dateRange} onValueChange={setDateRange}>
             <SelectTrigger className="w-32">
               <SelectValue />
@@ -195,139 +379,335 @@ export default function AnalyticsPage() {
               <SelectItem value="90d">Last 90 days</SelectItem>
             </SelectContent>
           </Select>
+          <Button variant="outline" size="icon" onClick={handleRefresh} disabled={isRefreshing}>
+            <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+          </Button>
         </div>
       </div>
 
       <Tabs defaultValue="overview" className="space-y-6">
-        <TabsList className="grid w-full max-w-md grid-cols-3">
+        <TabsList className="grid w-full max-w-lg grid-cols-4">
           <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="posts">Post History</TabsTrigger>
           <TabsTrigger value="platforms">Platforms</TabsTrigger>
+          <TabsTrigger value="trends">Trends</TabsTrigger>
+          <TabsTrigger value="posts">History</TabsTrigger>
         </TabsList>
 
         {/* Overview Tab */}
         <TabsContent value="overview" className="space-y-6">
-          {/* Summary Cards */}
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-            <Card className="shadow-sm hover:shadow-md transition-shadow">
+          {/* Summary Stats Cards */}
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <Card className="shadow-sm hover:shadow-md transition-shadow border-l-4 border-l-blue-500">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">Total Posts</CardTitle>
-                <BarChart3 className="h-4 w-4 text-muted-foreground" />
+                <BarChart3 className="h-5 w-5 text-blue-500" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{analyticsData?.summary?.totalPosts ?? 0}</div>
-                <p className="text-xs text-muted-foreground">
+                <div className="text-3xl font-bold">{totalPosts}</div>
+                <p className="text-xs text-muted-foreground flex items-center mt-1">
+                  <Calendar className="w-3 h-3 mr-1" />
                   {dateRange === '7d' ? 'Last 7 days' : dateRange === '30d' ? 'Last 30 days' : 'Last 90 days'}
                 </p>
               </CardContent>
             </Card>
 
-            <Card className="shadow-sm hover:shadow-md transition-shadow">
+            <Card className="shadow-sm hover:shadow-md transition-shadow border-l-4 border-l-green-500">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Total Views</CardTitle>
-                <Eye className="h-4 w-4 text-muted-foreground" />
+                <CardTitle className="text-sm font-medium">Successful</CardTitle>
+                <CheckCircle2 className="h-5 w-5 text-green-500" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{formatNumber(analyticsData?.summary?.totalViews ?? 0)}</div>
-                <p className="text-xs text-muted-foreground">
-                  Across all platforms
+                <div className="text-3xl font-bold text-green-600">{successfulPosts}</div>
+                <div className="flex items-center mt-1">
+                  <Progress value={successRate} className="h-2 flex-1" />
+                  <span className="text-xs text-muted-foreground ml-2">{successRate}%</span>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="shadow-sm hover:shadow-md transition-shadow border-l-4 border-l-red-500">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Failed</CardTitle>
+                <XCircle className="h-5 w-5 text-red-500" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-3xl font-bold text-red-600">{failedPosts}</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {failedPosts > 0 ? 'Needs attention' : 'All posts successful'}
                 </p>
               </CardContent>
             </Card>
 
-            <Card className="shadow-sm hover:shadow-md transition-shadow">
+            <Card className="shadow-sm hover:shadow-md transition-shadow border-l-4 border-l-amber-500">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Engagement</CardTitle>
-                <Heart className="h-4 w-4 text-muted-foreground" />
+                <CardTitle className="text-sm font-medium">Scheduled</CardTitle>
+                <Clock className="h-5 w-5 text-amber-500" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{formatNumber(analyticsData?.summary?.totalLikes ?? 0)}</div>
-                <p className="text-xs text-muted-foreground">
-                  Likes, shares, comments
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card className="shadow-sm hover:shadow-md transition-shadow">
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Avg Engagement</CardTitle>
-                <TrendingUp className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{(analyticsData?.summary?.averageEngagement ?? 0).toFixed(1)}%</div>
-                <p className="text-xs text-muted-foreground">
-                  Engagement rate
+                <div className="text-3xl font-bold text-amber-600">{scheduledPosts}</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Pending publication
                 </p>
               </CardContent>
             </Card>
           </div>
 
-          {/* Recent Posts */}
+          {/* Charts Row */}
+          <div className="grid gap-6 md:grid-cols-2">
+            {/* Post Status Distribution */}
+            <Card className="shadow-sm">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <PieChart className="w-5 h-5" />
+                  Post Status Distribution
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {statusChartData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={250}>
+                    <RechartsPieChart>
+                      <Pie
+                        data={statusChartData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={60}
+                        outerRadius={90}
+                        paddingAngle={2}
+                        dataKey="value"
+                        label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                      >
+                        {statusChartData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip />
+                    </RechartsPieChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-[250px] flex items-center justify-center text-gray-500">
+                    No data available
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Platform Performance */}
+            <Card className="shadow-sm">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Activity className="w-5 h-5" />
+                  Platform Performance
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {platformChartData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={250}>
+                    <BarChart data={platformChartData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="platform" fontSize={12} />
+                      <YAxis fontSize={12} />
+                      <Tooltip />
+                      <Legend />
+                      <Bar dataKey="success" name="Success" fill="#22c55e" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="failed" name="Failed" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-[250px] flex items-center justify-center text-gray-500">
+                    No platform data available
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Success Rate by Platform */}
           <Card className="shadow-sm">
             <CardHeader>
-              <CardTitle>Recent Activity</CardTitle>
-              <CardDescription>
-                Your latest posts and their performance
-              </CardDescription>
+              <CardTitle>Success Rate by Platform</CardTitle>
+              <CardDescription>Percentage of successful posts per platform</CardDescription>
             </CardHeader>
             <CardContent>
-              {analyticsData?.recentPosts?.length ? (
-                <div className="space-y-4">
-                  {analyticsData.recentPosts.slice(0, 10).map((post) => (
-                    <div key={post.id} className="flex items-start space-x-3 p-3 rounded-lg hover:bg-gray-50">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm text-gray-900 line-clamp-2 mb-2">
-                          {post.content}
-                        </p>
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center space-x-2">
-                            <div className="flex space-x-1">
-                              {post.platforms.map((platform) => (
-                                <div key={platform} className="flex items-center space-x-1 text-xs text-gray-500">
-                                  {getPlatformIcon(platform)}
-                                  <span>{platform}</span>
-                                </div>
-                              ))}
-                            </div>
-                            <span className="text-xs text-gray-500">
-                              {post.postedAt ? new Date(post.postedAt).toLocaleDateString() : 'Not posted'}
-                            </span>
-                          </div>
-                          {post.analytics?.length > 0 && (
-                            <div className="flex items-center space-x-3 text-xs text-gray-600">
-                              <div className="flex items-center space-x-1">
-                                <Eye className="w-3 h-3" />
-                                <span>{formatNumber(post.analytics.reduce((sum, a) => sum + (a.views || 0), 0))}</span>
-                              </div>
-                              <div className="flex items-center space-x-1">
-                                <Heart className="w-3 h-3" />
-                                <span>{formatNumber(post.analytics.reduce((sum, a) => sum + (a.likes || 0), 0))}</span>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </div>
+              <div className="space-y-4">
+                {platformChartData.map(platform => (
+                  <div key={platform.platform} className="flex items-center gap-4">
+                    <div className="flex items-center gap-2 w-28">
+                      {getPlatformIcon(platform.platform)}
+                      <span className="text-sm font-medium">{platform.platform}</span>
                     </div>
-                  ))}
-                </div>
+                    <div className="flex-1">
+                      <Progress
+                        value={platform.successRate}
+                        className="h-3"
+                      />
+                    </div>
+                    <div className="w-20 text-right">
+                      <span className={`text-sm font-medium ${platform.successRate >= 80 ? 'text-green-600' : platform.successRate >= 50 ? 'text-amber-600' : 'text-red-600'}`}>
+                        {platform.successRate}%
+                      </span>
+                      <span className="text-xs text-gray-500 ml-1">({platform.total})</span>
+                    </div>
+                  </div>
+                ))}
+                {platformChartData.length === 0 && (
+                  <div className="text-center text-gray-500 py-4">
+                    No platform data available
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Platforms Tab */}
+        <TabsContent value="platforms" className="space-y-6">
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {platformChartData.map(platform => (
+              <Card key={platform.platform} className="shadow-sm hover:shadow-md transition-shadow">
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      {getPlatformIcon(platform.platform)}
+                      {platform.platform}
+                    </CardTitle>
+                    <Badge
+                      variant={platform.successRate >= 80 ? 'default' : platform.successRate >= 50 ? 'secondary' : 'destructive'}
+                    >
+                      {platform.successRate}% success
+                    </Badge>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-3 gap-4 text-center">
+                    <div>
+                      <div className="text-2xl font-bold">{platform.total}</div>
+                      <div className="text-xs text-muted-foreground">Total</div>
+                    </div>
+                    <div>
+                      <div className="text-2xl font-bold text-green-600">{platform.success}</div>
+                      <div className="text-xs text-muted-foreground">Success</div>
+                    </div>
+                    <div>
+                      <div className="text-2xl font-bold text-red-600">{platform.failed}</div>
+                      <div className="text-xs text-muted-foreground">Failed</div>
+                    </div>
+                  </div>
+                  <div className="mt-4">
+                    <Progress value={platform.successRate} className="h-2" />
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+            {platformChartData.length === 0 && (
+              <Card className="col-span-full">
+                <CardContent className="py-8 text-center text-gray-500">
+                  <Activity className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                  <p>No platform data available</p>
+                  <p className="text-sm">Start posting to see platform performance</p>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+
+          {/* Detailed Platform Breakdown */}
+          <Card className="shadow-sm">
+            <CardHeader>
+              <CardTitle>Platform Comparison</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {platformChartData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={platformChartData} layout="vertical">
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis type="number" />
+                    <YAxis dataKey="platform" type="category" width={80} />
+                    <Tooltip />
+                    <Legend />
+                    <Bar dataKey="success" name="Successful Posts" fill="#22c55e" />
+                    <Bar dataKey="failed" name="Failed Posts" fill="#ef4444" />
+                  </BarChart>
+                </ResponsiveContainer>
               ) : (
-                <div className="text-center text-gray-500 py-8">
-                  <BarChart3 className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                  <p>No recent activity</p>
-                  <p className="text-sm">Start posting to see analytics here</p>
+                <div className="h-[300px] flex items-center justify-center text-gray-500">
+                  No data to display
                 </div>
               )}
             </CardContent>
           </Card>
         </TabsContent>
 
+        {/* Trends Tab */}
+        <TabsContent value="trends" className="space-y-6">
+          {/* Daily Posts Trend */}
+          <Card className="shadow-sm">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <TrendingUp className="w-5 h-5" />
+                Daily Posting Trend
+              </CardTitle>
+              <CardDescription>
+                Posts created over the selected time period
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {dailyPostData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={300}>
+                  <AreaChart data={dailyPostData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="date" fontSize={11} />
+                    <YAxis fontSize={12} />
+                    <Tooltip />
+                    <Legend />
+                    <Area type="monotone" dataKey="posts" name="Total Posts" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.2} />
+                    <Area type="monotone" dataKey="success" name="Successful" stroke="#22c55e" fill="#22c55e" fillOpacity={0.2} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-[300px] flex items-center justify-center text-gray-500">
+                  No trend data available
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Profile Performance (if multiple profiles) */}
+          {profiles.length > 1 && (
+            <Card className="shadow-sm">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Users className="w-5 h-5" />
+                  Performance by Profile
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {profiles.map(profile => (
+                    <div key={profile.id} className="flex items-center gap-4 p-3 rounded-lg hover:bg-gray-50">
+                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white font-bold">
+                        {profile.name.charAt(0)}
+                      </div>
+                      <div className="flex-1">
+                        <div className="font-medium">{profile.name}</div>
+                        <div className="text-sm text-gray-500">
+                          {profile.lateProfileId ? 'Connected' : 'Not connected to Late'}
+                        </div>
+                      </div>
+                      <Badge variant="outline">View Posts</Badge>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
         {/* Post History Tab */}
         <TabsContent value="posts" className="space-y-6">
           <Card className="shadow-sm">
             <CardHeader>
-              <div className="flex justify-between items-center">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
-                  <CardTitle>All Posts</CardTitle>
+                  <CardTitle>Post History</CardTitle>
                   <CardDescription>
                     Complete history of your posts across all platforms
                   </CardDescription>
@@ -352,75 +732,37 @@ export default function AnalyticsPage() {
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
                 </div>
               ) : postsData?.posts?.length ? (
-                <div className="space-y-4">
+                <div className="space-y-3 max-h-[600px] overflow-y-auto">
                   {postsData.posts.map((post) => (
-                    <div key={post.id} className="border rounded-lg p-4 hover:bg-gray-50">
-                      <div className="flex justify-between items-start mb-3">
-                        <div className="flex-1">
-                          <div className="flex items-center space-x-2 mb-2">
-                            <Badge className={`text-xs ${getStatusColor(post.status)}`}>
-                              {post.status}
-                            </Badge>
-                            <span className="text-xs text-gray-500">
-                              {post.postedAt 
-                                ? `Posted ${new Date(post.postedAt).toLocaleDateString()}`
-                                : post.scheduledAt 
-                                  ? `Scheduled for ${new Date(post.scheduledAt).toLocaleDateString()}`
-                                  : `Created ${new Date(post.createdAt).toLocaleDateString()}`
-                              }
-                            </span>
-                          </div>
-                          <p className="text-sm text-gray-900 line-clamp-3 mb-2">
-                            {post.content}
-                          </p>
-                          {post.caption && (
-                            <p className="text-xs text-gray-600 line-clamp-2 mb-2">
-                              Caption: {post.caption}
-                            </p>
-                          )}
-                          {post.hashtags && (
-                            <p className="text-xs text-blue-600 mb-2">
-                              {post.hashtags}
-                            </p>
-                          )}
+                    <div key={post.id} className="border rounded-lg p-4 hover:bg-gray-50 transition-colors">
+                      <div className="flex justify-between items-start mb-2">
+                        <div className="flex items-center gap-2">
+                          <Badge className={`text-xs ${getStatusColor(post.status)}`}>
+                            {post.status}
+                          </Badge>
+                          <span className="text-xs text-gray-500">
+                            {post.postedAt
+                              ? `Posted ${new Date(post.postedAt).toLocaleDateString()}`
+                              : post.scheduledAt
+                                ? `Scheduled for ${new Date(post.scheduledAt).toLocaleDateString()}`
+                                : `Created ${new Date(post.createdAt).toLocaleDateString()}`
+                            }
+                          </span>
                         </div>
-                      </div>
-
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-2">
+                        <div className="flex items-center gap-1">
                           {post.platforms.map((platform) => (
-                            <div key={platform} className="flex items-center space-x-1 text-xs text-gray-500">
+                            <div key={platform} className="text-gray-400">
                               {getPlatformIcon(platform)}
-                              <span>{platform}</span>
                             </div>
                           ))}
                         </div>
-
-                        {post.analytics?.length > 0 && (
-                          <div className="flex items-center space-x-4 text-xs text-gray-600">
-                            <div className="flex items-center space-x-1">
-                              <Eye className="w-3 h-3" />
-                              <span>{formatNumber(post.analytics.reduce((sum, a) => sum + (a.views || 0), 0))}</span>
-                            </div>
-                            <div className="flex items-center space-x-1">
-                              <Heart className="w-3 h-3" />
-                              <span>{formatNumber(post.analytics.reduce((sum, a) => sum + (a.likes || 0), 0))}</span>
-                            </div>
-                            <div className="flex items-center space-x-1">
-                              <Share className="w-3 h-3" />
-                              <span>{formatNumber(post.analytics.reduce((sum, a) => sum + (a.shares || 0), 0))}</span>
-                            </div>
-                            <div className="flex items-center space-x-1">
-                              <MessageCircle className="w-3 h-3" />
-                              <span>{formatNumber(post.analytics.reduce((sum, a) => sum + (a.comments || 0), 0))}</span>
-                            </div>
-                          </div>
-                        )}
                       </div>
-
+                      <p className="text-sm text-gray-700 line-clamp-2">
+                        {post.content}
+                      </p>
                       {post.status === 'FAILED' && post.errorMessage && (
-                        <div className="mt-3 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-600">
-                          Error: {post.errorMessage}
+                        <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-600">
+                          {post.errorMessage}
                         </div>
                       )}
                     </div>
@@ -431,62 +773,6 @@ export default function AnalyticsPage() {
                   <Calendar className="w-8 h-8 mx-auto mb-2 opacity-50" />
                   <p>No posts found</p>
                   <p className="text-sm">Create your first post to see it here</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Platform Performance Tab */}
-        <TabsContent value="platforms" className="space-y-6">
-          <Card className="shadow-sm">
-            <CardHeader>
-              <CardTitle>Platform Performance</CardTitle>
-              <CardDescription>
-                Compare engagement across different social media platforms
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {analyticsData?.platformPerformance?.length ? (
-                <div className="space-y-6">
-                  {analyticsData.platformPerformance.map((platform) => (
-                    <div key={platform.platform} className="border rounded-lg p-4">
-                      <div className="flex items-center justify-between mb-4">
-                        <div className="flex items-center space-x-2">
-                          {getPlatformIcon(platform.platform)}
-                          <h3 className="font-medium capitalize">{platform.platform}</h3>
-                        </div>
-                        <div className="text-sm text-gray-600">
-                          {platform.averageEngagement?.toFixed(1) ?? 0}% engagement rate
-                        </div>
-                      </div>
-                      
-                      <div className="grid grid-cols-4 gap-4 text-center">
-                        <div>
-                          <div className="text-2xl font-bold text-blue-600">{formatNumber(platform.views)}</div>
-                          <div className="text-xs text-gray-500">Views</div>
-                        </div>
-                        <div>
-                          <div className="text-2xl font-bold text-red-600">{formatNumber(platform.likes)}</div>
-                          <div className="text-xs text-gray-500">Likes</div>
-                        </div>
-                        <div>
-                          <div className="text-2xl font-bold text-green-600">{formatNumber(platform.shares)}</div>
-                          <div className="text-xs text-gray-500">Shares</div>
-                        </div>
-                        <div>
-                          <div className="text-2xl font-bold text-purple-600">{formatNumber(platform.comments)}</div>
-                          <div className="text-xs text-gray-500">Comments</div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center text-gray-500 py-8">
-                  <Users className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                  <p>No platform data yet</p>
-                  <p className="text-sm">Start posting to different platforms to see performance metrics</p>
                 </div>
               )}
             </CardContent>

@@ -524,3 +524,32 @@ model GoogleDriveProcessedFile {
   @@unique([mappingId, fileId])
   @@index([status])
 }
+
+model BrandVoiceProfile {
+  id                String   @id @default(cuid())
+  userId            String
+  companyId         String?
+  name              String   @default("Default Brand Voice")
+  brandVoice        String?  @db.Text   // Detailed brand voice description
+  targetAudience    String?  @db.Text   // Who the content is for
+  keyMessaging      String?  @db.Text   // Core messages and themes
+  writingStyle      String?            // formal, casual, professional, friendly
+  brandValues       String?  @db.Text   // What the brand stands for
+  dosAndDonts       String?  @db.Text   // Specific guidelines
+  exampleContent    String?  @db.Text   // Sample posts representing the brand
+  industryNiche     String?            // Business category
+  toneOfVoice       String?            // energetic, calm, authoritative, etc.
+  hashtagStyle      String?            // always, sometimes, never, specific tags
+  emojiUsage        String?            // heavy, moderate, minimal, none
+  callToAction      String?  @db.Text   // Preferred CTA styles
+  contentThemes     String[]           // Array of preferred themes
+  avoidTopics       String[]           // Topics to avoid
+  isDefault         Boolean  @default(false)
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([userId, companyId, name])
+  @@index([userId])
+  @@index([companyId])
+}

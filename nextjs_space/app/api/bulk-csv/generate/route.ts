@@ -73,6 +73,27 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // 2.5. Get brand voice profile for AI content generation
+    let brandVoice = null
+    if (contentMode === 'ai') {
+      try {
+        const brandVoiceProfile = await prisma.brandVoiceProfile.findFirst({
+          where: {
+            userId: auth.userId,
+            companyId: auth.companyId || undefined,
+            isActive: true,
+            isDefault: true,
+          },
+        })
+        if (brandVoiceProfile) {
+          brandVoice = brandVoiceProfile
+          console.log('📝 Using brand voice profile:', brandVoiceProfile.name)
+        }
+      } catch (e) {
+        console.log('📝 No brand voice profile found, using default AI generation')
+      }
+    }
+
     // 3. List files from Dropbox
     console.log('📂 Listing files from Dropbox...')
     const files = await listFilesInFolder(dropboxFolderPath)
@@ -174,7 +195,7 @@ export async function POST(req: NextRequest) {
           } else if (contentMode === 'ai') {
             console.log('  🤖 Generating AI content with vision analysis...')
             // For AI mode, we'll analyze the image and generate content using aiPrompt
-            postContent = await generateAIContent(fileBuffer, isImg, aiPrompt || '', platforms)
+            postContent = await generateAIContent(fileBuffer, isImg, aiPrompt || '', platforms, brandVoice)
           } else if (contentMode === 'prompt') {
             // For prompt mode, apply the prompt template
             postContent = promptText.replace('{filename}', file.name)
@@ -256,10 +277,18 @@ export async function POST(req: NextRequest) {
 
         // Check if we have at least one valid account ID
         if (Object.keys(platformAccountIds).length === 0) {
+          const missingPlatforms = platforms.filter((p: string) => !platformAccountIds[p.toLowerCase()])
           throw new Error(
-            `No valid Late API account IDs found for selected platforms. ` +
-            `Please connect your platforms in Settings and ensure they have proper Late account IDs.`
+            `Platform connection error: No valid Late API account IDs found for ${missingPlatforms.join(', ')}. ` +
+            `Please go to Settings > Platform Connections and connect these platforms with valid Late account IDs. ` +
+            `Each platform needs a real account ID (not placeholder values).`
           )
+        }
+
+        // Log which platforms will be used vs skipped
+        const skippedPlatforms = platforms.filter((p: string) => !platformAccountIds[p.toLowerCase()])
+        if (skippedPlatforms.length > 0) {
+          console.warn(`  ⚠️  Skipping platforms without valid account IDs: ${skippedPlatforms.join(', ')}`)
         }
 
         // Build CSV row with platform-specific account IDs
@@ -341,7 +370,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
-async function generateAIContent(fileBuffer: Buffer, isImage: boolean, promptText: string, platforms: string[] = []): Promise<string> {
+async function generateAIContent(fileBuffer: Buffer, isImage: boolean, promptText: string, platforms: string[] = [], brandVoice?: any): Promise<string> {
   try {
     // For AI content generation, we'll use Abacus AI
     const abacusApiKey = process.env.ABACUSAI_API_KEY
@@ -393,7 +422,28 @@ async function generateAIContent(fileBuffer: Buffer, isImage: boolean, promptTex
     // Step 2: Generate post content based on vision analysis
     console.log('    🤖 Generating post content...')
     const platformList = platforms.length > 0 ? platforms.join(', ') : 'social media'
-    const systemPrompt = `You are a social media content creator. Generate engaging post content based on the image analysis and user prompt. 
+
+    // Build brand voice context
+    let brandVoiceContext = ''
+    if (brandVoice) {
+      brandVoiceContext = '\n\n--- BRAND VOICE PROFILE ---\n'
+      if (brandVoice.brandVoice) brandVoiceContext += `Brand Voice & Personality: ${brandVoice.brandVoice}\n`
+      if (brandVoice.targetAudience) brandVoiceContext += `Target Audience: ${brandVoice.targetAudience}\n`
+      if (brandVoice.keyMessaging) brandVoiceContext += `Key Messaging: ${brandVoice.keyMessaging}\n`
+      if (brandVoice.writingStyle) brandVoiceContext += `Writing Style: ${brandVoice.writingStyle}\n`
+      if (brandVoice.toneOfVoice) brandVoiceContext += `Tone of Voice: ${brandVoice.toneOfVoice}\n`
+      if (brandVoice.brandValues) brandVoiceContext += `Brand Values: ${brandVoice.brandValues}\n`
+      if (brandVoice.dosAndDonts) brandVoiceContext += `Do's and Don'ts: ${brandVoice.dosAndDonts}\n`
+      if (brandVoice.industryNiche) brandVoiceContext += `Industry/Niche: ${brandVoice.industryNiche}\n`
+      if (brandVoice.emojiUsage) brandVoiceContext += `Emoji Usage: ${brandVoice.emojiUsage}\n`
+      if (brandVoice.hashtagStyle) brandVoiceContext += `Hashtag Style: ${brandVoice.hashtagStyle}\n`
+      if (brandVoice.callToAction) brandVoiceContext += `Preferred CTAs: ${brandVoice.callToAction}\n`
+      if (brandVoice.exampleContent) brandVoiceContext += `Example Content (match this style): ${brandVoice.exampleContent}\n`
+      brandVoiceContext += '--- END BRAND VOICE ---\n\n'
+      brandVoiceContext += 'IMPORTANT: Generate content that matches this brand voice exactly. Use the specified tone, style, and messaging guidelines.\n'
+    }
+
+    const systemPrompt = `You are a social media content creator. Generate engaging post content based on the image analysis and user prompt.${brandVoiceContext}
 
 Platforms: ${platformList}
 Consider platform-specific best practices (character limits, hashtags, tone).
@@ -433,12 +483,12 @@ Create compelling social media content based on the above.`
     )
 
     const generatedContent = contentResponse.data.choices?.[0]?.message?.content || ''
-    
+
     if (!generatedContent || generatedContent.trim() === '') {
       console.error('    ❌ AI returned empty content')
       throw new Error('AI returned empty content')
     }
-    
+
     console.log('    ✅ Generated:', generatedContent.substring(0, 100) + '...')
     return generatedContent
   } catch (error: any) {
