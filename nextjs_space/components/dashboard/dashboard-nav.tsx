@@ -37,8 +37,8 @@ const navItems = [
     icon: Calendar,
   },
   {
-    title: 'Post',
-    href: '/dashboard/post',
+    title: 'Posts',
+    href: '/dashboard/posts',
     icon: Send,
   },
   {
