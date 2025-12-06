@@ -7,6 +7,9 @@ import { useEffect } from 'react'
 import { DashboardNav } from '@/components/dashboard/dashboard-nav'
 import { BrandingProvider } from '@/contexts/branding-context'
 
+// Set to true to bypass authentication for local development
+const BYPASS_AUTH = process.env.NODE_ENV === 'development'
+
 export default function DashboardLayout({
   children,
 }: {
@@ -16,12 +19,14 @@ export default function DashboardLayout({
   const router = useRouter()
 
   useEffect(() => {
-    if (status === 'unauthenticated') {
+    // Skip auth redirect in dev mode when BYPASS_AUTH is true
+    if (!BYPASS_AUTH && status === 'unauthenticated') {
       router.push('/auth/signin')
     }
   }, [status, router])
 
-  if (status === 'loading') {
+  // Skip loading state in dev mode when bypassing auth
+  if (!BYPASS_AUTH && status === 'loading') {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
@@ -29,7 +34,8 @@ export default function DashboardLayout({
     )
   }
 
-  if (status === 'unauthenticated') {
+  // Skip unauthenticated check in dev mode when bypassing auth
+  if (!BYPASS_AUTH && status === 'unauthenticated') {
     return null // Will redirect
   }
 

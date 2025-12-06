@@ -85,8 +85,10 @@ export default function CreateTemplatePage() {
     if (mode !== 'select') {
       setSelectedFieldId(null)
       const type = mode.replace('place-', '') as StagingElement['type']
-      const w = type === 'text' || type === 'number' ? 300 : 200
-      const h = type === 'text' || type === 'number' ? 60 : 200
+      // Set default dimensions based on field type
+      let w = 200, h = 200
+      if (type === 'text' || type === 'number') { w = 300; h = 60 }
+      else if (type === 'shape') { w = 150; h = 150 }
       setStagingElement({ id: 'staging', type, x: imageDimensions.width/2 - w/2, y: imageDimensions.height/2 - h/2, width: w, height: h, content: 'New ' + type, ...DEFAULT_FIELD } as StagingElement)
     } else { setStagingElement(null) }
   }, [imageDimensions, setEditorMode, setSelectedFieldId, setStagingElement])
@@ -233,8 +235,8 @@ export default function CreateTemplatePage() {
         
         {/* Main Canvas Area */}
         <main className="flex-1 flex flex-col overflow-hidden">
-          {/* Toolbar */}
-          <div className="p-2 border-b border-gray-800 bg-gray-900/30 flex justify-center">
+          {/* Toolbar - extra padding bottom for tooltip visibility */}
+          <div className="p-2 pb-14 border-b border-gray-800 bg-gray-900/30 flex justify-center">
             <TemplateToolbar
               editorMode={editorMode}
               onModeChange={handleModeChange}
@@ -251,7 +253,7 @@ export default function CreateTemplatePage() {
               onMoveLayerDown={() => selectedFieldId && moveFieldLayer(selectedFieldId, 'down')}
             />
           </div>
-          
+
           {/* Canvas */}
           <div className="flex-1 overflow-hidden">
             <TemplateCanvas
@@ -320,22 +322,22 @@ export default function CreateTemplatePage() {
       
       {/* Add Field Dialog */}
       <Dialog open={showFieldDialog} onOpenChange={setShowFieldDialog}>
-        <DialogContent className="bg-gray-900 border-gray-800">
-          <DialogHeader><DialogTitle>Add Field</DialogTitle></DialogHeader>
+        <DialogContent className="bg-gray-900 border-gray-800 text-white">
+          <DialogHeader><DialogTitle className="text-white">Add Field</DialogTitle></DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label>Field Label (Required)</Label>
-              <Input value={newFieldLabel} onChange={e => setNewFieldLabel(e.target.value)} placeholder="e.g. Player Name, Score" className="bg-gray-800 border-gray-700" autoFocus />
+              <Label className="text-gray-200">Field Label (Required)</Label>
+              <Input value={newFieldLabel} onChange={e => setNewFieldLabel(e.target.value)} placeholder="e.g. Player Name, Score" className="bg-gray-800 border-gray-700 text-white placeholder:text-gray-500" autoFocus />
             </div>
             <div className="space-y-2">
-              <Label>Field Name (Optional)</Label>
-              <Input value={newFieldName} onChange={e => setNewFieldName(e.target.value)} placeholder="e.g. player_name" className="bg-gray-800 border-gray-700" />
-              <p className="text-xs text-gray-500">Auto-generated from label if left empty</p>
+              <Label className="text-gray-200">Field Name (Optional)</Label>
+              <Input value={newFieldName} onChange={e => setNewFieldName(e.target.value)} placeholder="e.g. player_name" className="bg-gray-800 border-gray-700 text-white placeholder:text-gray-500" />
+              <p className="text-xs text-gray-400">Auto-generated from label if left empty</p>
             </div>
           </div>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setShowFieldDialog(false)}>Cancel</Button>
-            <Button onClick={confirmAddField} className="bg-blue-600 hover:bg-blue-700">Add Field</Button>
+            <Button variant="ghost" onClick={() => setShowFieldDialog(false)} className="text-gray-300 hover:text-white">Cancel</Button>
+            <Button onClick={confirmAddField} className="bg-blue-600 hover:bg-blue-700 text-white">Add Field</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -9,6 +9,9 @@ import { Button } from '@/components/ui/button'
 import { Calendar, Zap, BarChart3, Users, ArrowRight, Sparkles } from 'lucide-react'
 import Link from 'next/link'
 
+// Set to true to bypass authentication for local development
+const BYPASS_AUTH = process.env.NODE_ENV === 'development'
+
 export default function HomePage() {
   const sessionResult = useSession() || {}
   const session = sessionResult?.data ?? null
@@ -16,10 +19,25 @@ export default function HomePage() {
   const router = useRouter()
 
   useEffect(() => {
+    // In dev mode with bypass, auto-redirect to dashboard
+    if (BYPASS_AUTH) {
+      router.push('/dashboard')
+      return
+    }
     if (status === 'authenticated' && session) {
       router.push('/dashboard')
     }
   }, [session, status, router])
+
+  // In dev mode with bypass, show loading while redirecting
+  if (BYPASS_AUTH) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+        <span className="ml-3 text-gray-600">Redirecting to dashboard...</span>
+      </div>
+    )
+  }
 
   if (status === 'loading') {
     return (

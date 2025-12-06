@@ -20,6 +20,7 @@ import {
   Layers,
   ChevronUp,
   ChevronDown,
+  Square,
 } from 'lucide-react'
 import { EditorMode } from './types'
 import { cn } from '@/lib/utils'
@@ -38,6 +39,7 @@ const tools: ToolbarTool[] = [
   { id: 'place-image', icon: <Image className="w-5 h-5" />, label: 'Image Field', shortcut: 'I' },
   { id: 'place-logo', icon: <Star className="w-5 h-5" />, label: 'Logo Field', shortcut: 'L' },
   { id: 'place-video', icon: <Video className="w-5 h-5" />, label: 'Video Field', shortcut: 'D' },
+  { id: 'place-shape', icon: <Square className="w-5 h-5" />, label: 'Shape', shortcut: 'S' },
 ]
 
 interface TemplateToolbarProps {

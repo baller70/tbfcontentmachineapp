@@ -95,7 +95,7 @@ export interface AlignmentGuide {
   label: string
 }
 
-export type EditorMode = 'select' | 'place-text' | 'place-number' | 'place-image' | 'place-logo' | 'place-video'
+export type EditorMode = 'select' | 'place-text' | 'place-number' | 'place-image' | 'place-logo' | 'place-video' | 'place-shape'
 
 export interface EditorState {
   fields: TemplateField[]
