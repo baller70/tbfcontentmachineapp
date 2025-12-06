@@ -1,65 +1,28 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useMemo } from 'react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { useToast } from '@/hooks/use-toast'
-import { CheckCircle2, TrendingUp, Eye, Heart, MessageSquare, Share2 } from 'lucide-react'
+import { CheckCircle2, Eye, Heart, MessageSquare, Share2 } from 'lucide-react'
 import {
+  BaseTabProps,
   Post,
-  Profile,
   PostCard,
   PostFilters,
-  PostFilters as PostFiltersType,
   PostPreviewModal,
   PostSkeleton,
-  EmptyState
+  EmptyState,
+  usePreviewModal,
+  usePostFilters,
+  useFilteredPosts
 } from '@/components/posts'
 
-interface PublishedTabProps {
-  posts: Post[]
-  profiles: Profile[]
-  loading: boolean
-  onRefresh: () => void
-}
+export function PublishedTab({ posts, profiles, loading }: BaseTabProps) {
+  // Use shared hooks
+  const { previewItem: previewPost, showPreview, openPreview, setShowPreview } = usePreviewModal<Post>()
+  const { filters, setFilters } = usePostFilters()
 
-export function PublishedTab({ posts, profiles, loading, onRefresh }: PublishedTabProps) {
-  const { toast } = useToast()
-  const [previewPost, setPreviewPost] = useState<Post | null>(null)
-  const [showPreview, setShowPreview] = useState(false)
-
-  const [filters, setFilters] = useState<PostFiltersType>({
-    status: 'all',
-    platform: 'all',
-    profile: 'all',
-    dateRange: 'all',
-    search: ''
-  })
-
-  // Filter posts
-  const filteredPosts = useMemo(() => {
-    return posts.filter(post => {
-      if (filters.platform !== 'all' && !post.platforms.includes(filters.platform)) return false
-      if (filters.profile !== 'all' && post.profileId !== filters.profile) return false
-      if (filters.search) {
-        const search = filters.search.toLowerCase()
-        const content = (post.content || '').toLowerCase()
-        if (!content.includes(search)) return false
-      }
-      if (filters.dateRange !== 'all') {
-        const date = new Date(post.postedAt || post.publishedAt || post.createdAt)
-        const now = new Date()
-        const days = filters.dateRange === '7d' ? 7 : filters.dateRange === '30d' ? 30 : 90
-        const cutoff = new Date(now.getTime() - days * 24 * 60 * 60 * 1000)
-        if (date < cutoff) return false
-      }
-      return true
-    }).sort((a, b) => {
-      const dateA = new Date(a.postedAt || a.publishedAt || a.createdAt).getTime()
-      const dateB = new Date(b.postedAt || b.publishedAt || b.createdAt).getTime()
-      return dateB - dateA // Most recent first
-    })
-  }, [posts, filters])
+  // Filter posts - sorted by posted date (most recent first)
+  const filteredPosts = useFilteredPosts(posts, filters, { sortBy: 'postedAt', sortOrder: 'desc' })
 
   // Calculate aggregated stats
   const aggregatedStats = useMemo(() => {
@@ -138,7 +101,7 @@ export function PublishedTab({ posts, profiles, loading, onRefresh }: PublishedT
                 <PostCard
                   key={post.id}
                   post={post}
-                  onPreview={(p) => { setPreviewPost(p); setShowPreview(true) }}
+                  onPreview={openPreview}
                 />
               ))}
             </div>

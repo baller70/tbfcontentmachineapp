@@ -1,5 +1,6 @@
 // Posts components barrel export
 export * from './types'
+export * from './hooks'
 export { PostCard } from './PostCard'
 export { PostStatusBadge } from './PostStatusBadge'
 export { PostFilters } from './PostFilters'

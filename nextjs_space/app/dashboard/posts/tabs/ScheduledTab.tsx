@@ -1,79 +1,46 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useToast } from '@/hooks/use-toast'
-import { Calendar as CalendarIcon, Clock } from 'lucide-react'
+import { Calendar as CalendarIcon } from 'lucide-react'
 import {
+  BaseTabProps,
   Post,
-  Profile,
   PostCard,
   PostFilters,
-  PostFilters as PostFiltersType,
   BulkActions,
   PostPreviewModal,
   PostSkeleton,
-  EmptyState
+  EmptyState,
+  usePostSelection,
+  usePreviewModal,
+  usePostFilters,
+  useFilteredPosts
 } from '@/components/posts'
 import { format } from 'date-fns'
 
-interface ScheduledTabProps {
-  posts: Post[]
-  profiles: Profile[]
-  loading: boolean
-  onRefresh: () => void
-}
-
-export function ScheduledTab({ posts, profiles, loading, onRefresh }: ScheduledTabProps) {
+export function ScheduledTab({ posts, profiles, loading, onRefresh }: BaseTabProps) {
   const { toast } = useToast()
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
-  const [previewPost, setPreviewPost] = useState<Post | null>(null)
-  const [showPreview, setShowPreview] = useState(false)
+
+  // Use shared hooks
+  const { selectedIds, selectedCount, toggleSelect, selectAll, deselectAll } = usePostSelection()
+  const { previewItem: previewPost, showPreview, openPreview, setShowPreview } = usePreviewModal<Post>()
+  const { filters, setFilters } = usePostFilters()
+
+  // Reschedule-specific state
   const [reschedulePost, setReschedulePost] = useState<Post | null>(null)
   const [showReschedule, setShowReschedule] = useState(false)
   const [rescheduleDate, setRescheduleDate] = useState('')
   const [rescheduleTime, setRescheduleTime] = useState('09:00')
   const [rescheduling, setRescheduling] = useState(false)
 
-  const [filters, setFilters] = useState<PostFiltersType>({
-    status: 'all',
-    platform: 'all',
-    profile: 'all',
-    dateRange: 'all',
-    search: ''
-  })
-
-  // Filter and sort posts by scheduled time
-  const filteredPosts = useMemo(() => {
-    return posts.filter(post => {
-      if (filters.platform !== 'all' && !post.platforms.includes(filters.platform)) return false
-      if (filters.profile !== 'all' && post.profileId !== filters.profile) return false
-      if (filters.search) {
-        const search = filters.search.toLowerCase()
-        const content = (post.content || '').toLowerCase()
-        if (!content.includes(search)) return false
-      }
-      return true
-    }).sort((a, b) => {
-      const dateA = new Date(a.scheduledAt || a.createdAt).getTime()
-      const dateB = new Date(b.scheduledAt || b.createdAt).getTime()
-      return dateA - dateB // Sort by upcoming first
-    })
-  }, [posts, filters])
-
-  // Handlers
-  const toggleSelect = (id: string, selected: boolean) => {
-    setSelectedIds(prev => {
-      const next = new Set(prev)
-      if (selected) next.add(id)
-      else next.delete(id)
-      return next
-    })
-  }
+  // Filter posts - sorted by scheduled time (ascending for upcoming)
+  const filteredPosts = useFilteredPosts(posts, filters, { sortBy: 'scheduledAt', sortOrder: 'asc' })
 
   const handleReschedule = async () => {
     if (!reschedulePost || !rescheduleDate) return
@@ -152,7 +119,7 @@ export function ScheduledTab({ posts, profiles, loading, onRefresh }: ScheduledT
                   post={post}
                   selected={selectedIds.has(post.id)}
                   onSelect={toggleSelect}
-                  onPreview={(p) => { setPreviewPost(p); setShowPreview(true) }}
+                  onPreview={openPreview}
                   onReschedule={openReschedule}
                 />
               ))}
@@ -163,12 +130,12 @@ export function ScheduledTab({ posts, profiles, loading, onRefresh }: ScheduledT
 
       {/* Bulk Actions */}
       <BulkActions
-        selectedCount={selectedIds.size}
+        selectedCount={selectedCount}
         totalCount={filteredPosts.length}
-        onSelectAll={() => setSelectedIds(new Set(filteredPosts.map(p => p.id)))}
-        onDeselectAll={() => setSelectedIds(new Set())}
+        onSelectAll={() => selectAll(filteredPosts.map(p => p.id))}
+        onDeselectAll={deselectAll}
         onReschedule={() => {
-          if (selectedIds.size === 1) {
+          if (selectedCount === 1) {
             const post = filteredPosts.find(p => selectedIds.has(p.id))
             if (post) openReschedule(post)
           }

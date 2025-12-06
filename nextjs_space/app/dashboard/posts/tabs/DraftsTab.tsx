@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
@@ -9,32 +9,32 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import { useToast } from '@/hooks/use-toast'
-import { FileText, Plus, Calendar, Send } from 'lucide-react'
+import { FileText, Plus, Calendar } from 'lucide-react'
 import {
+  BaseTabProps,
   Post,
-  Profile,
   PLATFORMS,
   PostCard,
   PostFilters,
-  PostFilters as PostFiltersType,
   BulkActions,
   PostPreviewModal,
   PostSkeleton,
-  EmptyState
+  EmptyState,
+  usePostSelection,
+  usePreviewModal,
+  usePostFilters,
+  useFilteredPosts
 } from '@/components/posts'
 
-interface DraftsTabProps {
-  posts: Post[]
-  profiles: Profile[]
-  loading: boolean
-  onRefresh: () => void
-}
-
-export function DraftsTab({ posts, profiles, loading, onRefresh }: DraftsTabProps) {
+export function DraftsTab({ posts, profiles, loading, onRefresh }: BaseTabProps) {
   const { toast } = useToast()
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
-  const [previewPost, setPreviewPost] = useState<Post | null>(null)
-  const [showPreview, setShowPreview] = useState(false)
+
+  // Use shared hooks
+  const { selectedIds, selectedCount, toggleSelect, selectAll, deselectAll } = usePostSelection()
+  const { previewItem: previewPost, showPreview, openPreview, setShowPreview } = usePreviewModal<Post>()
+  const { filters, setFilters } = usePostFilters()
+
+  // Editor-specific state
   const [showEditor, setShowEditor] = useState(false)
   const [editingPost, setEditingPost] = useState<Post | null>(null)
   const [saving, setSaving] = useState(false)
@@ -46,32 +46,8 @@ export function DraftsTab({ posts, profiles, loading, onRefresh }: DraftsTabProp
   const [scheduleDate, setScheduleDate] = useState('')
   const [scheduleTime, setScheduleTime] = useState('09:00')
 
-  const [filters, setFilters] = useState<PostFiltersType>({
-    status: 'all', platform: 'all', profile: 'all', dateRange: 'all', search: ''
-  })
-
   // Filter posts
-  const filteredPosts = useMemo(() => {
-    return posts.filter(post => {
-      if (filters.platform !== 'all' && !post.platforms.includes(filters.platform)) return false
-      if (filters.search) {
-        const search = filters.search.toLowerCase()
-        const content = (post.content || '').toLowerCase()
-        if (!content.includes(search)) return false
-      }
-      return true
-    }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-  }, [posts, filters])
-
-  // Handlers
-  const toggleSelect = (id: string, selected: boolean) => {
-    setSelectedIds(prev => {
-      const next = new Set(prev)
-      if (selected) next.add(id)
-      else next.delete(id)
-      return next
-    })
-  }
+  const filteredPosts = useFilteredPosts(posts, filters)
 
   const openEditor = (post?: Post) => {
     if (post) {
@@ -168,7 +144,7 @@ export function DraftsTab({ posts, profiles, loading, onRefresh }: DraftsTabProp
           ) : (
             <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2">
               {filteredPosts.map(post => (
-                <PostCard key={post.id} post={post} selected={selectedIds.has(post.id)} onSelect={toggleSelect} onPreview={(p) => { setPreviewPost(p); setShowPreview(true) }} onEdit={openEditor} />
+                <PostCard key={post.id} post={post} selected={selectedIds.has(post.id)} onSelect={toggleSelect} onPreview={openPreview} onEdit={openEditor} />
               ))}
             </div>
           )}
@@ -176,7 +152,7 @@ export function DraftsTab({ posts, profiles, loading, onRefresh }: DraftsTabProp
       </Card>
 
       {/* Bulk Actions */}
-      <BulkActions selectedCount={selectedIds.size} totalCount={filteredPosts.length} onSelectAll={() => setSelectedIds(new Set(filteredPosts.map(p => p.id)))} onDeselectAll={() => setSelectedIds(new Set())} />
+      <BulkActions selectedCount={selectedCount} totalCount={filteredPosts.length} onSelectAll={() => selectAll(filteredPosts.map(p => p.id))} onDeselectAll={deselectAll} />
 
       {/* Preview Modal */}
       <PostPreviewModal post={previewPost} open={showPreview} onOpenChange={setShowPreview} onEdit={openEditor} />

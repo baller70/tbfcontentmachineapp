@@ -1,92 +1,34 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { useToast } from '@/hooks/use-toast'
 import {
+  BaseTabProps,
   Post,
-  Profile,
-  PostFilters as PostFiltersType,
   PostCard,
   PostFilters,
   BulkActions,
   PostPreviewModal,
   PostSkeleton,
-  EmptyState
+  EmptyState,
+  usePostSelection,
+  usePreviewModal,
+  usePostFilters,
+  useFilteredPosts
 } from '@/components/posts'
 
-interface AllPostsTabProps {
-  posts: Post[]
-  profiles: Profile[]
-  loading: boolean
-  onRefresh: () => void
-}
-
-export function AllPostsTab({ posts, profiles, loading, onRefresh }: AllPostsTabProps) {
+export function AllPostsTab({ posts, profiles, loading, onRefresh }: BaseTabProps) {
   const { toast } = useToast()
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
-  const [previewPost, setPreviewPost] = useState<Post | null>(null)
-  const [showPreview, setShowPreview] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
-  const [filters, setFilters] = useState<PostFiltersType>({
-    status: 'all',
-    platform: 'all',
-    profile: 'all',
-    dateRange: 'all',
-    search: ''
-  })
+  // Use shared hooks for common functionality
+  const { selectedIds, selectedCount, toggleSelect, selectAll, deselectAll } = usePostSelection()
+  const { previewItem: previewPost, showPreview, openPreview, setShowPreview } = usePreviewModal<Post>()
+  const { filters, setFilters } = usePostFilters()
 
-  // Filter posts
-  const filteredPosts = useMemo(() => {
-    return posts.filter(post => {
-      // Status filter
-      if (filters.status !== 'all' && post.status !== filters.status) return false
-      
-      // Platform filter
-      if (filters.platform !== 'all' && !post.platforms.includes(filters.platform)) return false
-      
-      // Profile filter
-      if (filters.profile !== 'all' && post.profileId !== filters.profile) return false
-      
-      // Search filter
-      if (filters.search) {
-        const search = filters.search.toLowerCase()
-        const content = (post.content || '').toLowerCase()
-        const caption = (post.caption || '').toLowerCase()
-        if (!content.includes(search) && !caption.includes(search)) return false
-      }
-      
-      // Date range filter
-      if (filters.dateRange !== 'all') {
-        const date = new Date(post.createdAt)
-        const now = new Date()
-        const days = filters.dateRange === '7d' ? 7 : filters.dateRange === '30d' ? 30 : 90
-        const cutoff = new Date(now.getTime() - days * 24 * 60 * 60 * 1000)
-        if (date < cutoff) return false
-      }
-      
-      return true
-    }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-  }, [posts, filters])
-
-  // Selection handlers
-  const toggleSelect = (id: string, selected: boolean) => {
-    setSelectedIds(prev => {
-      const next = new Set(prev)
-      if (selected) next.add(id)
-      else next.delete(id)
-      return next
-    })
-  }
-
-  const selectAll = () => {
-    setSelectedIds(new Set(filteredPosts.map(p => p.id)))
-  }
-
-  const deselectAll = () => {
-    setSelectedIds(new Set())
-  }
+  // Filter posts using shared hook
+  const filteredPosts = useFilteredPosts(posts, filters)
 
   // Delete handler
   const handleBulkDelete = async () => {
@@ -101,19 +43,13 @@ export function AllPostsTab({ posts, profiles, loading, onRefresh }: AllPostsTab
       await Promise.all(deletePromises)
       
       toast({ title: 'Deleted', description: `${selectedIds.size} posts deleted` })
-      setSelectedIds(new Set())
+      deselectAll()
       onRefresh()
     } catch (error) {
       toast({ title: 'Error', description: 'Failed to delete posts', variant: 'destructive' })
     } finally {
       setDeleting(false)
     }
-  }
-
-  // Preview handler
-  const handlePreview = (post: Post) => {
-    setPreviewPost(post)
-    setShowPreview(true)
   }
 
   if (loading) {
@@ -164,9 +100,9 @@ export function AllPostsTab({ posts, profiles, loading, onRefresh }: AllPostsTab
                   post={post}
                   selected={selectedIds.has(post.id)}
                   onSelect={toggleSelect}
-                  onPreview={handlePreview}
+                  onPreview={openPreview}
                   onDelete={(p) => {
-                    setSelectedIds(new Set([p.id]))
+                    selectAll([p.id])
                     handleBulkDelete()
                   }}
                 />
@@ -178,9 +114,9 @@ export function AllPostsTab({ posts, profiles, loading, onRefresh }: AllPostsTab
 
       {/* Bulk Actions */}
       <BulkActions
-        selectedCount={selectedIds.size}
+        selectedCount={selectedCount}
         totalCount={filteredPosts.length}
-        onSelectAll={selectAll}
+        onSelectAll={() => selectAll(filteredPosts.map(p => p.id))}
         onDeselectAll={deselectAll}
         onDelete={handleBulkDelete}
         isDeleting={deleting}
@@ -192,7 +128,7 @@ export function AllPostsTab({ posts, profiles, loading, onRefresh }: AllPostsTab
         open={showPreview}
         onOpenChange={setShowPreview}
         onDelete={(p) => {
-          setSelectedIds(new Set([p.id]))
+          selectAll([p.id])
           handleBulkDelete()
           setShowPreview(false)
         }}

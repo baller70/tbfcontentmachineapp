@@ -17,7 +17,7 @@ import {
   Folder, RefreshCw, Loader2, Eye
 } from 'lucide-react'
 import { Profile, PostSeries, PLATFORMS, PostSkeleton, EmptyState } from '@/components/posts'
-import DropboxFolderPicker from '@/components/dropbox-folder-picker'
+import { DropboxFolderPicker } from '@/components/dropbox-folder-picker'
 
 interface SeriesTabProps {
   profiles: Profile[]
@@ -257,8 +257,41 @@ function SeriesCard({ series, onEdit, onDelete, onToggleStatus }: {
   )
 }
 
-// Series Dialog - simplified for brevity
-function SeriesDialog({ open, onOpenChange, formData, setFormData, profiles, editingSeries, saving, onSave, onToggleDay, onTogglePlatform, showDropboxPicker, setShowDropboxPicker }: any) {
+// Series Form Data interface
+interface SeriesFormData {
+  name: string
+  description: string
+  frequency: string
+  daysOfWeek: string[]
+  timeOfDay: string
+  platforms: string[]
+  startDate: string
+  endDate: string
+  profileId: string
+  dropboxFolderId: string
+  dropboxFolderPath: string
+  prompt: string
+  loopEnabled: boolean
+}
+
+// Series Dialog Props
+interface SeriesDialogProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  formData: SeriesFormData
+  setFormData: React.Dispatch<React.SetStateAction<SeriesFormData>>
+  profiles: Profile[]
+  editingSeries: PostSeries | null
+  saving: boolean
+  onSave: () => void
+  onToggleDay: (day: string) => void
+  onTogglePlatform: (platform: string) => void
+  showDropboxPicker: boolean
+  setShowDropboxPicker: (show: boolean) => void
+}
+
+// Series Dialog component
+function SeriesDialog({ open, onOpenChange, formData, setFormData, profiles, editingSeries, saving, onSave, onToggleDay, onTogglePlatform, showDropboxPicker, setShowDropboxPicker }: SeriesDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
@@ -267,11 +300,11 @@ function SeriesDialog({ open, onOpenChange, formData, setFormData, profiles, edi
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Name *</Label>
-              <Input value={formData.name} onChange={(e) => setFormData((p: any) => ({ ...p, name: e.target.value }))} placeholder="Series name" />
+              <Input value={formData.name} onChange={(e) => setFormData(p => ({ ...p, name: e.target.value }))} placeholder="Series name" />
             </div>
             <div className="space-y-2">
               <Label>Frequency</Label>
-              <Select value={formData.frequency} onValueChange={(v) => setFormData((p: any) => ({ ...p, frequency: v }))}>
+              <Select value={formData.frequency} onValueChange={(v) => setFormData(p => ({ ...p, frequency: v }))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {FREQUENCIES.map(f => <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>)}
@@ -281,7 +314,7 @@ function SeriesDialog({ open, onOpenChange, formData, setFormData, profiles, edi
           </div>
           <div className="space-y-2">
             <Label>Description</Label>
-            <Textarea value={formData.description} onChange={(e) => setFormData((p: any) => ({ ...p, description: e.target.value }))} placeholder="Describe this series..." rows={2} />
+            <Textarea value={formData.description} onChange={(e) => setFormData(p => ({ ...p, description: e.target.value }))} placeholder="Describe this series..." rows={2} />
           </div>
           <div className="space-y-2">
             <Label>Days of Week</Label>
@@ -294,11 +327,11 @@ function SeriesDialog({ open, onOpenChange, formData, setFormData, profiles, edi
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Time</Label>
-              <Input type="time" value={formData.timeOfDay} onChange={(e) => setFormData((p: any) => ({ ...p, timeOfDay: e.target.value }))} />
+              <Input type="time" value={formData.timeOfDay} onChange={(e) => setFormData(p => ({ ...p, timeOfDay: e.target.value }))} />
             </div>
             <div className="space-y-2">
               <Label>Start Date</Label>
-              <Input type="date" value={formData.startDate} onChange={(e) => setFormData((p: any) => ({ ...p, startDate: e.target.value }))} />
+              <Input type="date" value={formData.startDate} onChange={(e) => setFormData(p => ({ ...p, startDate: e.target.value }))} />
             </div>
           </div>
           <div className="space-y-2">
@@ -314,10 +347,10 @@ function SeriesDialog({ open, onOpenChange, formData, setFormData, profiles, edi
           </div>
           <div className="space-y-2">
             <Label>AI Prompt (optional)</Label>
-            <Textarea value={formData.prompt} onChange={(e) => setFormData((p: any) => ({ ...p, prompt: e.target.value }))} placeholder="Instructions for AI content generation..." rows={2} />
+            <Textarea value={formData.prompt} onChange={(e) => setFormData(p => ({ ...p, prompt: e.target.value }))} placeholder="Instructions for AI content generation..." rows={2} />
           </div>
           <div className="flex items-center gap-2">
-            <Switch checked={formData.loopEnabled} onCheckedChange={(c) => setFormData((p: any) => ({ ...p, loopEnabled: c }))} />
+            <Switch checked={formData.loopEnabled} onCheckedChange={(c) => setFormData(p => ({ ...p, loopEnabled: c }))} />
             <Label>Loop through Dropbox files</Label>
           </div>
         </div>

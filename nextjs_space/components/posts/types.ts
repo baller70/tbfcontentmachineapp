@@ -1,6 +1,22 @@
 // Posts section types
+// ============================================================================
 
 export type PostStatus = 'DRAFT' | 'SCHEDULED' | 'POSTED' | 'PUBLISHED' | 'FAILED' | 'PENDING'
+
+export type MediaType = 'image' | 'video'
+
+export type PostSource = 'local' | 'late'
+
+export interface MediaItem {
+  url: string
+  type: MediaType
+}
+
+export interface ContentTemplate {
+  id: string
+  title: string
+  topic?: string
+}
 
 export interface Post {
   id: string
@@ -19,14 +35,10 @@ export interface Post {
   profileId?: string | null
   profileName?: string
   mediaUrls?: string[]
-  mediaItems?: { url: string; type: 'image' | 'video' }[]
-  source?: 'local' | 'late'
+  mediaItems?: MediaItem[]
+  source?: PostSource
   analytics?: PostAnalytics[]
-  contentTemplate?: {
-    id: string
-    title: string
-    topic?: string
-  }
+  contentTemplate?: ContentTemplate
 }
 
 export interface PostAnalytics {
@@ -105,6 +117,19 @@ export interface RateLimitData {
   }[]
 }
 
+// ============================================================================
+// Base Tab Props - Shared interface for all tab components
+// ============================================================================
+export interface BaseTabProps {
+  posts: Post[]
+  profiles: Profile[]
+  loading: boolean
+  onRefresh: () => void
+}
+
+// ============================================================================
+// Platform Configuration
+// ============================================================================
 export const PLATFORMS = [
   { id: 'instagram', label: 'Instagram', color: '#E4405F' },
   { id: 'facebook', label: 'Facebook', color: '#1877F2' },
@@ -116,12 +141,30 @@ export const PLATFORMS = [
   { id: 'youtube', label: 'YouTube', color: '#FF0000' }
 ] as const
 
-export const STATUS_CONFIG = {
+// ============================================================================
+// Status Configuration
+// ============================================================================
+export type StatusIconName = 'FileText' | 'Clock' | 'Loader' | 'CheckCircle' | 'XCircle' | 'AlertCircle'
+
+export interface StatusConfig {
+  label: string
+  color: string
+  icon: StatusIconName
+}
+
+export const STATUS_CONFIG: Record<PostStatus, StatusConfig> = {
   DRAFT: { label: 'Draft', color: 'bg-gray-100 text-gray-800', icon: 'FileText' },
   SCHEDULED: { label: 'Scheduled', color: 'bg-blue-100 text-blue-800', icon: 'Clock' },
   PENDING: { label: 'Pending', color: 'bg-yellow-100 text-yellow-800', icon: 'Loader' },
   POSTED: { label: 'Published', color: 'bg-green-100 text-green-800', icon: 'CheckCircle' },
   PUBLISHED: { label: 'Published', color: 'bg-green-100 text-green-800', icon: 'CheckCircle' },
   FAILED: { label: 'Failed', color: 'bg-red-100 text-red-800', icon: 'XCircle' }
-} as const
+}
+
+// ============================================================================
+// Utility Types
+// ============================================================================
+export type PlatformId = typeof PLATFORMS[number]['id']
+
+export type DateRangeOption = PostFilters['dateRange']
 

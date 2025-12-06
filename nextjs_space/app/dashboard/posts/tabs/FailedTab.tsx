@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
@@ -9,65 +9,36 @@ import { Label } from '@/components/ui/label'
 import { useToast } from '@/hooks/use-toast'
 import { XCircle, RefreshCw, AlertTriangle } from 'lucide-react'
 import {
+  BaseTabProps,
   Post,
-  Profile,
   PostCard,
   PostFilters,
-  PostFilters as PostFiltersType,
   BulkActions,
   PostPreviewModal,
   PostSkeleton,
-  EmptyState
+  EmptyState,
+  usePostSelection,
+  usePreviewModal,
+  usePostFilters,
+  useFilteredPosts
 } from '@/components/posts'
 
-interface FailedTabProps {
-  posts: Post[]
-  profiles: Profile[]
-  loading: boolean
-  onRefresh: () => void
-}
-
-export function FailedTab({ posts, profiles, loading, onRefresh }: FailedTabProps) {
+export function FailedTab({ posts, profiles, loading, onRefresh }: BaseTabProps) {
   const { toast } = useToast()
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
-  const [previewPost, setPreviewPost] = useState<Post | null>(null)
-  const [showPreview, setShowPreview] = useState(false)
+
+  // Use shared hooks
+  const { selectedIds, selectedCount, toggleSelect, selectAll, deselectAll } = usePostSelection()
+  const { previewItem: previewPost, showPreview, openPreview, setShowPreview } = usePreviewModal<Post>()
+  const { filters, setFilters } = usePostFilters()
+
+  // Retry-specific state
   const [retryPost, setRetryPost] = useState<Post | null>(null)
   const [showRetry, setShowRetry] = useState(false)
   const [retryContent, setRetryContent] = useState('')
   const [retrying, setRetrying] = useState(false)
 
-  const [filters, setFilters] = useState<PostFiltersType>({
-    status: 'all',
-    platform: 'all',
-    profile: 'all',
-    dateRange: 'all',
-    search: ''
-  })
-
   // Filter posts
-  const filteredPosts = useMemo(() => {
-    return posts.filter(post => {
-      if (filters.platform !== 'all' && !post.platforms.includes(filters.platform)) return false
-      if (filters.profile !== 'all' && post.profileId !== filters.profile) return false
-      if (filters.search) {
-        const search = filters.search.toLowerCase()
-        const content = (post.content || '').toLowerCase()
-        if (!content.includes(search)) return false
-      }
-      return true
-    }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-  }, [posts, filters])
-
-  // Handlers
-  const toggleSelect = (id: string, selected: boolean) => {
-    setSelectedIds(prev => {
-      const next = new Set(prev)
-      if (selected) next.add(id)
-      else next.delete(id)
-      return next
-    })
-  }
+  const filteredPosts = useFilteredPosts(posts, filters)
 
   const openRetry = (post: Post) => {
     setRetryPost(post)
@@ -125,8 +96,8 @@ export function FailedTab({ posts, profiles, loading, onRefresh }: FailedTabProp
       )
       await Promise.all(retryPromises)
       
-      toast({ title: 'Retry Queued', description: `${selectedIds.size} posts queued for retry` })
-      setSelectedIds(new Set())
+      toast({ title: 'Retry Queued', description: `${selectedCount} posts queued for retry` })
+      deselectAll()
       onRefresh()
     } catch (error) {
       toast({ title: 'Error', description: 'Failed to retry posts', variant: 'destructive' })
@@ -164,7 +135,7 @@ export function FailedTab({ posts, profiles, loading, onRefresh }: FailedTabProp
               </CardDescription>
             </div>
             {filteredPosts.length > 0 && (
-              <Button variant="outline" size="sm" onClick={handleBulkRetry} disabled={selectedIds.size === 0 || retrying}>
+              <Button variant="outline" size="sm" onClick={handleBulkRetry} disabled={selectedCount === 0 || retrying}>
                 <RefreshCw className={`w-4 h-4 mr-2 ${retrying ? 'animate-spin' : ''}`} />
                 Retry Selected
               </Button>
@@ -192,7 +163,7 @@ export function FailedTab({ posts, profiles, loading, onRefresh }: FailedTabProp
           ) : (
             <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2">
               {filteredPosts.map(post => (
-                <PostCard key={post.id} post={post} selected={selectedIds.has(post.id)} onSelect={toggleSelect} onPreview={(p) => { setPreviewPost(p); setShowPreview(true) }} onRetry={openRetry} />
+                <PostCard key={post.id} post={post} selected={selectedIds.has(post.id)} onSelect={toggleSelect} onPreview={openPreview} onRetry={openRetry} />
               ))}
             </div>
           )}
@@ -200,7 +171,7 @@ export function FailedTab({ posts, profiles, loading, onRefresh }: FailedTabProp
       </Card>
 
       {/* Bulk Actions */}
-      <BulkActions selectedCount={selectedIds.size} totalCount={filteredPosts.length} onSelectAll={() => setSelectedIds(new Set(filteredPosts.map(p => p.id)))} onDeselectAll={() => setSelectedIds(new Set())} onRetry={handleBulkRetry} isRetrying={retrying} />
+      <BulkActions selectedCount={selectedCount} totalCount={filteredPosts.length} onSelectAll={() => selectAll(filteredPosts.map(p => p.id))} onDeselectAll={deselectAll} onRetry={handleBulkRetry} isRetrying={retrying} />
 
       {/* Preview Modal */}
       <PostPreviewModal post={previewPost} open={showPreview} onOpenChange={setShowPreview} onRetry={openRetry} />
