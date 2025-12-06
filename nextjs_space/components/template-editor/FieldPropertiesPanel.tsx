@@ -21,9 +21,10 @@ import {
   Palette,
   X,
 } from 'lucide-react'
-import { TemplateField, FONT_FAMILIES } from './types'
+import { TemplateField } from './types'
 import { BLEND_MODES, CORNER_STYLES, FILTERS, PHOTO_EFFECTS, TEXTURES } from './constants'
 import { cn } from '@/lib/utils'
+import FontPicker from './FontPicker'
 
 interface FieldPropertiesPanelProps {
   field: TemplateField | null
@@ -142,16 +143,7 @@ export default function FieldPropertiesPanel({ field, onUpdate, onClose, classNa
               <Section title="Typography">
                 <div className="space-y-2">
                   <Label className="text-xs text-gray-400">Font Family</Label>
-                  <Select value={field.fontFamily} onValueChange={v => onUpdate({ fontFamily: v })}>
-                    <SelectTrigger className="h-9 bg-gray-800 border-gray-600">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent className="max-h-60">
-                      {FONT_FAMILIES.map(f => (
-                        <SelectItem key={f.value} value={f.value} style={{ fontFamily: f.value }}>{f.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <FontPicker value={field.fontFamily} onChange={v => onUpdate({ fontFamily: v })} />
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div className="space-y-1">

@@ -17,8 +17,9 @@ import {
 } from 'lucide-react'
 import {
   TemplateCanvas, TemplateToolbar, FieldPropertiesPanel, useTemplateEditor, useFieldManagement,
-  TemplateField, StagingElement, EditorMode, CATEGORIES, FONT_FAMILIES,
+  TemplateField, StagingElement, EditorMode, CATEGORIES,
 } from '@/components/template-editor'
+import DraggableFieldList from '@/components/template-editor/DraggableFieldList'
 import { DEFAULT_FIELD } from '@/components/template-editor/constants'
 import type { TemplateCanvasRef } from '@/components/template-editor/TemplateCanvas'
 
@@ -52,7 +53,7 @@ export default function CreateTemplatePage() {
     editorMode, setEditorMode, alignmentGuides, setAlignmentGuides, undo, redo, canUndo, canRedo, saveToHistory, snapToGrid,
   } = useTemplateEditor({ canvasWidth: imageDimensions.width, canvasHeight: imageDimensions.height })
   
-  const { addField, updateField, updateSelectedField, deleteField, duplicateField, moveFieldLayer } = useFieldManagement({
+  const { addField, updateField, updateSelectedField, deleteField, duplicateField, moveFieldLayer, reorderFields } = useFieldManagement({
     fields, setFields, selectedFieldId, setSelectedFieldId, saveToHistory,
   })
   
@@ -218,17 +219,16 @@ export default function CreateTemplatePage() {
             </div>
             <div className="pt-4 border-t border-gray-800">
               <h3 className="font-medium mb-3 flex items-center gap-2"><Layers className="w-4 h-4" /> Fields ({fields.length})</h3>
-              <div className="space-y-2">
-                {fields.map(f => (
-                  <div key={f.id} onClick={() => setSelectedFieldId(f.id)} className={'p-2 rounded-lg cursor-pointer transition-colors ' + (selectedFieldId === f.id ? 'bg-blue-600/20 border border-blue-500' : 'bg-gray-800/50 hover:bg-gray-800')}>
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium">{f.fieldLabel}</span>
-                      <span className="text-xs text-gray-400 capitalize">{f.fieldType}</span>
-                    </div>
-                  </div>
-                ))}
-                {fields.length === 0 && <p className="text-sm text-gray-500 text-center py-4">No fields yet. Use the toolbar to add fields.</p>}
-              </div>
+              <DraggableFieldList
+                fields={fields}
+                selectedFieldId={selectedFieldId}
+                onSelect={setSelectedFieldId}
+                onReorder={reorderFields}
+                onMoveUp={(id) => moveFieldLayer(id, 'up')}
+                onMoveDown={(id) => moveFieldLayer(id, 'down')}
+                onDuplicate={duplicateField}
+                onDelete={deleteField}
+              />
             </div>
           </div>
         </aside>

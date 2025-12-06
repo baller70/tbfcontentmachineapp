@@ -168,12 +168,18 @@ export function useFieldManagement({
   const toggleFieldVisibility = useCallback((fieldId: string) => {
     updateField(fieldId, { visible: !fields.find(f => f.id === fieldId)?.visible })
   }, [fields, updateField])
-  
+
   // Get field by ID
   const getField = useCallback((fieldId: string) => {
     return fields.find(f => f.id === fieldId)
   }, [fields])
-  
+
+  // Reorder fields (for drag-and-drop)
+  const reorderFields = useCallback((newFields: TemplateField[]) => {
+    setFields(newFields)
+    saveToHistory(newFields, selectedFieldId)
+  }, [saveToHistory, selectedFieldId, setFields])
+
   return {
     addField,
     updateField,
@@ -184,6 +190,7 @@ export function useFieldManagement({
     toggleFieldVisibility,
     getField,
     generateId,
+    reorderFields,
   }
 }
 

@@ -18,6 +18,7 @@ import {
   TemplateCanvas, TemplateToolbar, FieldPropertiesPanel, useTemplateEditor, useFieldManagement,
   TemplateField, StagingElement, EditorMode, CATEGORIES,
 } from '@/components/template-editor'
+import DraggableFieldList from '@/components/template-editor/DraggableFieldList'
 import { DEFAULT_FIELD } from '@/components/template-editor/constants'
 import type { TemplateCanvasRef } from '@/components/template-editor/TemplateCanvas'
 
@@ -52,7 +53,7 @@ export default function EditTemplatePage({ params }: { params: { id: string } })
     editorMode, setEditorMode, alignmentGuides, undo, redo, canUndo, canRedo, saveToHistory, snapToGrid,
   } = useTemplateEditor({ canvasWidth: imageDimensions.width, canvasHeight: imageDimensions.height })
 
-  const { addField, updateField, updateSelectedField, deleteField, duplicateField, moveFieldLayer } = useFieldManagement({
+  const { addField, updateField, updateSelectedField, deleteField, duplicateField, moveFieldLayer, reorderFields } = useFieldManagement({
     fields, setFields, selectedFieldId, setSelectedFieldId, saveToHistory,
   })
 
@@ -242,23 +243,16 @@ export default function EditTemplatePage({ params }: { params: { id: string } })
             </div>
             <div className="pt-4 border-t border-gray-800">
               <h3 className="font-medium mb-3 flex items-center gap-2"><Layers className="w-4 h-4" /> Fields ({fields.length})</h3>
-              <div className="space-y-2">
-                {fields.map((f, idx) => (
-                  <div key={f.id} onClick={() => setSelectedFieldId(f.id)} className={'p-2 rounded-lg cursor-pointer transition-colors flex items-center justify-between ' + (selectedFieldId === f.id ? 'bg-blue-600/20 border border-blue-500' : 'bg-gray-800/50 hover:bg-gray-800')}>
-                    <div>
-                      <span className="text-sm font-medium">{f.fieldLabel}</span>
-                      <span className="text-xs text-gray-400 ml-2 capitalize">{f.fieldType}</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Button variant="ghost" size="icon" className="h-6 w-6" onClick={(e) => { e.stopPropagation(); moveFieldLayer(f.id, 'up') }} disabled={idx === 0}><ChevronUp className="w-3 h-3" /></Button>
-                      <Button variant="ghost" size="icon" className="h-6 w-6" onClick={(e) => { e.stopPropagation(); moveFieldLayer(f.id, 'down') }} disabled={idx === fields.length - 1}><ChevronDown className="w-3 h-3" /></Button>
-                      <Button variant="ghost" size="icon" className="h-6 w-6" onClick={(e) => { e.stopPropagation(); duplicateField(f.id) }}><Copy className="w-3 h-3" /></Button>
-                      <Button variant="ghost" size="icon" className="h-6 w-6 text-red-400 hover:text-red-300" onClick={(e) => { e.stopPropagation(); deleteField(f.id) }}><Trash2 className="w-3 h-3" /></Button>
-                    </div>
-                  </div>
-                ))}
-                {fields.length === 0 && <p className="text-sm text-gray-500 text-center py-4">No fields yet. Use the toolbar to add fields.</p>}
-              </div>
+              <DraggableFieldList
+                fields={fields}
+                selectedFieldId={selectedFieldId}
+                onSelect={setSelectedFieldId}
+                onReorder={reorderFields}
+                onMoveUp={(id) => moveFieldLayer(id, 'up')}
+                onMoveDown={(id) => moveFieldLayer(id, 'down')}
+                onDuplicate={duplicateField}
+                onDelete={deleteField}
+              />
             </div>
           </div>
         </aside>
