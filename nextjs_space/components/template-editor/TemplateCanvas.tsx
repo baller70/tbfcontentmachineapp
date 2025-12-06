@@ -344,9 +344,11 @@ const TemplateCanvas = forwardRef<TemplateCanvasRef, TemplateCanvasProps>(({
     e.preventDefault()
     const coords = getCanvasCoords(e)
 
-    // If in placement mode, just update staging position
+    // If in placement mode, update staging position and trigger canvas click to confirm placement
     if (editorMode !== 'select' && stagingElement) {
       onStagingMove?.(coords.x - stagingElement.width / 2, coords.y - stagingElement.height / 2)
+      // Call onCanvasClick to trigger the field placement dialog
+      onCanvasClick?.(coords.x, coords.y)
       return
     }
 
