@@ -23,7 +23,8 @@ import {
   PostFilters as PostFiltersType,
   Profile,
   PostSeries,
-  RateLimitData
+  RateLimitData,
+  CreatePostDialog
 } from '@/components/posts'
 
 // Import tab components
@@ -49,7 +50,8 @@ export default function PostsPage() {
   const [activeTab, setActiveTab] = useState('all')
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
-  
+  const [createDialogOpen, setCreateDialogOpen] = useState(false)
+
   // Data states
   const [posts, setPosts] = useState<Post[]>([])
   const [profiles, setProfiles] = useState<Profile[]>([])
@@ -153,7 +155,7 @@ export default function PostsPage() {
             <RefreshCw className={`w-4 h-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
-          <Button size="sm" onClick={() => window.location.href = '/dashboard'}>
+          <Button size="sm" onClick={() => setCreateDialogOpen(true)}>
             <Plus className="w-4 h-4 mr-2" />
             Create Post
           </Button>
@@ -205,6 +207,13 @@ export default function PostsPage() {
           <RateLimitsTab profiles={profiles} />
         </TabsContent>
       </Tabs>
+
+      {/* Create Post Dialog */}
+      <CreatePostDialog
+        open={createDialogOpen}
+        onOpenChange={setCreateDialogOpen}
+        onPostCreated={refreshData}
+      />
     </div>
   )
 }

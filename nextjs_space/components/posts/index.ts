@@ -7,4 +7,5 @@ export { BulkActions } from './BulkActions'
 export { EmptyState } from './EmptyState'
 export { PostPreviewModal } from './PostPreviewModal'
 export { PostSkeleton, StatsSkeleton, TabsSkeleton } from './PostSkeleton'
+export { CreatePostDialog } from './CreatePostDialog'
 
