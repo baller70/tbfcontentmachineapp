@@ -180,6 +180,72 @@ export function useFieldManagement({
     saveToHistory(newFields, selectedFieldId)
   }, [saveToHistory, selectedFieldId, setFields])
 
+  // Toggle lock on field
+  const toggleFieldLock = useCallback((fieldId: string) => {
+    const field = fields.find(f => f.id === fieldId)
+    if (field) {
+      updateField(fieldId, { locked: !field.locked })
+    }
+  }, [fields, updateField])
+
+  // Flip field horizontally
+  const flipFieldHorizontal = useCallback((fieldId: string) => {
+    const field = fields.find(f => f.id === fieldId)
+    if (field) {
+      updateField(fieldId, { flipX: !field.flipX })
+    }
+  }, [fields, updateField])
+
+  // Flip field vertically
+  const flipFieldVertical = useCallback((fieldId: string) => {
+    const field = fields.find(f => f.id === fieldId)
+    if (field) {
+      updateField(fieldId, { flipY: !field.flipY })
+    }
+  }, [fields, updateField])
+
+  // Update multiple fields at once (for alignment)
+  const updateMultipleFields = useCallback((updates: { id: string; changes: Partial<TemplateField> }[]) => {
+    setFields(prev => {
+      const newFields = prev.map(field => {
+        const update = updates.find(u => u.id === field.id)
+        return update ? { ...field, ...update.changes } : field
+      })
+      saveToHistory(newFields, selectedFieldId)
+      return newFields
+    })
+  }, [saveToHistory, selectedFieldId, setFields])
+
+  // Group selected fields
+  const groupFields = useCallback((fieldIds: string[]) => {
+    if (fieldIds.length < 2) return
+    const groupId = generateId()
+    setFields(prev => {
+      const newFields = prev.map(field =>
+        fieldIds.includes(field.id) ? { ...field, groupId } : field
+      )
+      saveToHistory(newFields, selectedFieldId)
+      return newFields
+    })
+    return groupId
+  }, [generateId, saveToHistory, selectedFieldId, setFields])
+
+  // Ungroup fields
+  const ungroupFields = useCallback((groupId: string) => {
+    setFields(prev => {
+      const newFields = prev.map(field =>
+        field.groupId === groupId ? { ...field, groupId: undefined } : field
+      )
+      saveToHistory(newFields, selectedFieldId)
+      return newFields
+    })
+  }, [saveToHistory, selectedFieldId, setFields])
+
+  // Get all fields in a group
+  const getGroupFields = useCallback((groupId: string) => {
+    return fields.filter(f => f.groupId === groupId)
+  }, [fields])
+
   return {
     addField,
     updateField,
@@ -191,6 +257,13 @@ export function useFieldManagement({
     getField,
     generateId,
     reorderFields,
+    toggleFieldLock,
+    flipFieldHorizontal,
+    flipFieldVertical,
+    updateMultipleFields,
+    groupFields,
+    ungroupFields,
+    getGroupFields,
   }
 }
 

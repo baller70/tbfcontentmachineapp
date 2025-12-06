@@ -15,8 +15,8 @@ import {
   ArrowLeft, Upload, Save, Loader2, Layers, Menu, Plus, Trash2, ChevronUp, ChevronDown, Copy
 } from 'lucide-react'
 import {
-  TemplateCanvas, TemplateToolbar, FieldPropertiesPanel, useTemplateEditor, useFieldManagement,
-  TemplateField, StagingElement, EditorMode, CATEGORIES,
+  TemplateCanvas, TemplateToolbar, FieldPropertiesPanel, useTemplateEditor, useFieldManagement, useAlignment,
+  TemplateField, StagingElement, EditorMode, CATEGORIES, ShapeType,
 } from '@/components/template-editor'
 import DraggableFieldList from '@/components/template-editor/DraggableFieldList'
 import { DEFAULT_FIELD } from '@/components/template-editor/constants'
@@ -53,9 +53,36 @@ export default function EditTemplatePage({ params }: { params: { id: string } })
     editorMode, setEditorMode, alignmentGuides, undo, redo, canUndo, canRedo, saveToHistory, snapToGrid,
   } = useTemplateEditor({ canvasWidth: imageDimensions.width, canvasHeight: imageDimensions.height })
 
-  const { addField, updateField, updateSelectedField, deleteField, duplicateField, moveFieldLayer, reorderFields } = useFieldManagement({
+  const {
+    addField, updateField, updateSelectedField, deleteField, duplicateField, moveFieldLayer, reorderFields,
+    toggleFieldLock, flipFieldHorizontal, flipFieldVertical, updateMultipleFields, groupFields, ungroupFields, getGroupFields
+  } = useFieldManagement({
     fields, setFields, selectedFieldId, setSelectedFieldId, saveToHistory,
   })
+
+  // Multi-select state
+  const [selectedFieldIds, setSelectedFieldIds] = useState<string[]>([])
+
+  // Alignment hook
+  const alignment = useAlignment({
+    fields,
+    selectedFieldIds: selectedFieldIds.length > 0 ? selectedFieldIds : (selectedFieldId ? [selectedFieldId] : []),
+    canvasWidth: imageDimensions.width,
+    canvasHeight: imageDimensions.height,
+    updateFields: updateMultipleFields,
+  })
+
+  // Sync single selection to multi-select
+  useEffect(() => {
+    if (selectedFieldId && !selectedFieldIds.includes(selectedFieldId)) {
+      setSelectedFieldIds([selectedFieldId])
+    }
+  }, [selectedFieldId])
+
+  // Check if can group/ungroup
+  const canGroup = selectedFieldIds.length >= 2
+  const canUngroup = selectedFieldId ? !!fields.find(f => f.id === selectedFieldId)?.groupId : false
+  const isFieldLocked = selectedFieldId ? !!fields.find(f => f.id === selectedFieldId)?.locked : false
 
   useEffect(() => { fetchTemplate() }, [params.id])
 
@@ -111,12 +138,34 @@ export default function EditTemplatePage({ params }: { params: { id: string } })
     setEditorMode(mode)
     if (mode !== 'select') {
       setSelectedFieldId(null)
-      const type = mode.replace('place-', '') as StagingElement['type']
-      // Set default dimensions based on field type
-      let w = 200, h = 200
-      if (type === 'text' || type === 'number') { w = 300; h = 60 }
-      else if (type === 'shape') { w = 150; h = 150 }
-      setStagingElement({ id: 'staging', type, x: imageDimensions.width/2 - w/2, y: imageDimensions.height/2 - h/2, width: w, height: h, content: 'New ' + type, ...DEFAULT_FIELD } as StagingElement)
+      // Map mode to field type and shape type
+      let fieldType: StagingElement['type'] = 'shape'
+      let shapeType: ShapeType = 'rectangle'
+      let w = 150, h = 150
+
+      if (mode === 'place-text') { fieldType = 'text'; w = 300; h = 60 }
+      else if (mode === 'place-number') { fieldType = 'number'; w = 300; h = 60 }
+      else if (mode === 'place-image') { fieldType = 'image'; w = 200; h = 200 }
+      else if (mode === 'place-logo') { fieldType = 'logo'; w = 150; h = 150 }
+      else if (mode === 'place-video') { fieldType = 'video'; w = 320; h = 180 }
+      else if (mode === 'place-shape') { fieldType = 'shape'; shapeType = 'rectangle' }
+      else if (mode === 'place-circle') { fieldType = 'shape'; shapeType = 'circle' }
+      else if (mode === 'place-triangle') { fieldType = 'shape'; shapeType = 'triangle' }
+      else if (mode === 'place-line') { fieldType = 'shape'; shapeType = 'line'; w = 200; h = 4 }
+      else if (mode === 'place-arrow') { fieldType = 'shape'; shapeType = 'arrow'; w = 200; h = 40 }
+      else if (mode === 'place-rounded-rect') { fieldType = 'shape'; shapeType = 'rounded-rectangle' }
+
+      setStagingElement({
+        id: 'staging',
+        type: fieldType,
+        x: imageDimensions.width/2 - w/2,
+        y: imageDimensions.height/2 - h/2,
+        width: w,
+        height: h,
+        content: 'New ' + fieldType,
+        shapeType,
+        ...DEFAULT_FIELD
+      } as StagingElement)
     } else { setStagingElement(null) }
   }, [imageDimensions, setEditorMode, setSelectedFieldId, setStagingElement])
 
@@ -261,7 +310,38 @@ export default function EditTemplatePage({ params }: { params: { id: string } })
         <main className="flex-1 flex flex-col overflow-hidden">
           {/* Toolbar - extra padding bottom for tooltip visibility */}
           <div className="p-2 pb-14 border-b border-gray-800 bg-gray-900/30 flex justify-center">
-            <TemplateToolbar editorMode={editorMode} onModeChange={handleModeChange} canUndo={canUndo} canRedo={canRedo} onUndo={undo} onRedo={redo} showGrid={showGrid} onToggleGrid={() => setShowGrid(!showGrid)} selectedFieldId={selectedFieldId} onDeleteField={() => selectedFieldId && deleteField(selectedFieldId)} onDuplicateField={() => selectedFieldId && duplicateField(selectedFieldId)} onMoveLayerUp={() => selectedFieldId && moveFieldLayer(selectedFieldId, 'up')} onMoveLayerDown={() => selectedFieldId && moveFieldLayer(selectedFieldId, 'down')} />
+            <TemplateToolbar
+              editorMode={editorMode}
+              onModeChange={handleModeChange}
+              canUndo={canUndo}
+              canRedo={canRedo}
+              onUndo={undo}
+              onRedo={redo}
+              showGrid={showGrid}
+              onToggleGrid={() => setShowGrid(!showGrid)}
+              selectedFieldId={selectedFieldId}
+              selectedFieldIds={selectedFieldIds}
+              isFieldLocked={isFieldLocked}
+              onDeleteField={() => selectedFieldId && deleteField(selectedFieldId)}
+              onDuplicateField={() => selectedFieldId && duplicateField(selectedFieldId)}
+              onMoveLayerUp={() => selectedFieldId && moveFieldLayer(selectedFieldId, 'up')}
+              onMoveLayerDown={() => selectedFieldId && moveFieldLayer(selectedFieldId, 'down')}
+              onToggleLock={() => selectedFieldId && toggleFieldLock(selectedFieldId)}
+              onFlipHorizontal={() => selectedFieldId && flipFieldHorizontal(selectedFieldId)}
+              onFlipVertical={() => selectedFieldId && flipFieldVertical(selectedFieldId)}
+              onAlignLeft={alignment.alignLeft}
+              onAlignCenterH={alignment.alignCenterH}
+              onAlignRight={alignment.alignRight}
+              onAlignTop={alignment.alignTop}
+              onAlignCenterV={alignment.alignCenterV}
+              onAlignBottom={alignment.alignBottom}
+              onDistributeH={alignment.distributeH}
+              onDistributeV={alignment.distributeV}
+              onGroup={() => groupFields(selectedFieldIds)}
+              onUngroup={() => selectedFieldId && fields.find(f => f.id === selectedFieldId)?.groupId && ungroupFields(fields.find(f => f.id === selectedFieldId)!.groupId!)}
+              canGroup={canGroup}
+              canUngroup={canUngroup}
+            />
           </div>
           <div className="flex-1 overflow-hidden">
             <TemplateCanvas ref={canvasRef} width={imageDimensions.width} height={imageDimensions.height} backgroundImage={imagePreview} fields={fields} stagingElement={stagingElement} selectedFieldId={selectedFieldId} alignmentGuides={alignmentGuides} editorMode={editorMode} showGrid={showGrid} onCanvasClick={handleCanvasClick} onFieldSelect={handleFieldSelect} onFieldDrag={handleFieldDrag} onFieldResize={handleFieldResize} onStagingMove={(x, y) => stagingElement && setStagingElement({ ...stagingElement, x, y })} />

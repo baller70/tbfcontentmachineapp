@@ -219,15 +219,20 @@ const TemplateCanvas = forwardRef<TemplateCanvasRef, TemplateCanvasProps>(({
 
   // Draw a single field
   const drawField = useCallback((ctx: CanvasRenderingContext2D, field: TemplateField, isSelected: boolean) => {
+    // Skip locked fields visual indicator
+    const isLocked = field.locked
+
     ctx.save()
-    // Apply rotation if any
-    if (field.rotation) {
-      const cx = field.x + field.width / 2
-      const cy = field.y + field.height / 2
-      ctx.translate(cx, cy)
-      ctx.rotate((field.rotation * Math.PI) / 180)
-      ctx.translate(-cx, -cy)
-    }
+    const cx = field.x + field.width / 2
+    const cy = field.y + field.height / 2
+
+    // Apply transforms: rotation and flip
+    ctx.translate(cx, cy)
+    if (field.rotation) ctx.rotate((field.rotation * Math.PI) / 180)
+    if (field.flipX) ctx.scale(-1, 1)
+    if (field.flipY) ctx.scale(1, -1)
+    ctx.translate(-cx, -cy)
+
     // Apply opacity
     ctx.globalAlpha = field.opacity ?? 1
     // Apply blend mode
@@ -263,35 +268,83 @@ const TemplateCanvas = forwardRef<TemplateCanvasRef, TemplateCanvasProps>(({
       ctx.fillText(field.fieldLabel, field.x + field.width / 2, field.y + field.height / 2 + 20, field.width - 20)
     } else if (field.fieldType === 'shape') {
       ctx.fillStyle = field.fill || field.fontColor || '#3b82f6'
-      if (field.shape === 'circle' || field.shape === 'ellipse') {
+      const shapeType = field.shapeType || field.shape || 'rectangle'
+
+      if (shapeType === 'circle') {
         ctx.beginPath()
-        ctx.ellipse(field.x + field.width / 2, field.y + field.height / 2, field.width / 2, field.height / 2, 0, 0, Math.PI * 2)
+        ctx.ellipse(cx, cy, field.width / 2, field.height / 2, 0, 0, Math.PI * 2)
+        ctx.fill()
+      } else if (shapeType === 'triangle') {
+        ctx.beginPath()
+        ctx.moveTo(cx, field.y)
+        ctx.lineTo(field.x + field.width, field.y + field.height)
+        ctx.lineTo(field.x, field.y + field.height)
+        ctx.closePath()
+        ctx.fill()
+      } else if (shapeType === 'line') {
+        ctx.strokeStyle = field.fill || field.fontColor || '#3b82f6'
+        ctx.lineWidth = Math.max(field.height, 2)
+        ctx.beginPath()
+        ctx.moveTo(field.x, cy)
+        ctx.lineTo(field.x + field.width, cy)
+        ctx.stroke()
+      } else if (shapeType === 'arrow') {
+        ctx.strokeStyle = field.fill || field.fontColor || '#3b82f6'
+        ctx.lineWidth = Math.max(field.height / 4, 3)
+        ctx.beginPath()
+        ctx.moveTo(field.x, cy)
+        ctx.lineTo(field.x + field.width - 20, cy)
+        ctx.stroke()
+        // Arrow head
+        ctx.beginPath()
+        ctx.moveTo(field.x + field.width, cy)
+        ctx.lineTo(field.x + field.width - 20, field.y)
+        ctx.lineTo(field.x + field.width - 20, field.y + field.height)
+        ctx.closePath()
+        ctx.fill()
+      } else if (shapeType === 'rounded-rectangle') {
+        const radius = Math.min(field.width, field.height) * 0.2
+        ctx.beginPath()
+        ctx.roundRect(field.x, field.y, field.width, field.height, radius)
         ctx.fill()
       } else {
+        // Default rectangle
         ctx.fillRect(field.x, field.y, field.width, field.height)
       }
     }
 
+    // Draw lock indicator
+    if (isLocked) {
+      ctx.fillStyle = 'rgba(251, 191, 36, 0.8)'
+      ctx.font = '16px Arial'
+      ctx.textAlign = 'left'
+      ctx.textBaseline = 'top'
+      ctx.fillText('🔒', field.x + 4, field.y + 4)
+    }
+
     // Draw selection handles
     if (isSelected) {
-      ctx.strokeStyle = '#3b82f6'
+      ctx.strokeStyle = isLocked ? '#fbbf24' : '#3b82f6'
       ctx.lineWidth = 2
       ctx.strokeRect(field.x, field.y, field.width, field.height)
-      // Corner handles
-      const handles = [
-        { x: field.x, y: field.y },
-        { x: field.x + field.width, y: field.y },
-        { x: field.x + field.width, y: field.y + field.height },
-        { x: field.x, y: field.y + field.height },
-        { x: field.x + field.width / 2, y: field.y },
-        { x: field.x + field.width / 2, y: field.y + field.height },
-        { x: field.x, y: field.y + field.height / 2 },
-        { x: field.x + field.width, y: field.y + field.height / 2 },
-      ]
-      ctx.fillStyle = '#ffffff'
-      for (const h of handles) {
-        ctx.fillRect(h.x - HANDLE_SIZE / 2, h.y - HANDLE_SIZE / 2, HANDLE_SIZE, HANDLE_SIZE)
-        ctx.strokeRect(h.x - HANDLE_SIZE / 2, h.y - HANDLE_SIZE / 2, HANDLE_SIZE, HANDLE_SIZE)
+
+      if (!isLocked) {
+        // Corner handles
+        const handles = [
+          { x: field.x, y: field.y },
+          { x: field.x + field.width, y: field.y },
+          { x: field.x + field.width, y: field.y + field.height },
+          { x: field.x, y: field.y + field.height },
+          { x: field.x + field.width / 2, y: field.y },
+          { x: field.x + field.width / 2, y: field.y + field.height },
+          { x: field.x, y: field.y + field.height / 2 },
+          { x: field.x + field.width, y: field.y + field.height / 2 },
+        ]
+        ctx.fillStyle = '#ffffff'
+        for (const h of handles) {
+          ctx.fillRect(h.x - HANDLE_SIZE / 2, h.y - HANDLE_SIZE / 2, HANDLE_SIZE, HANDLE_SIZE)
+          ctx.strokeRect(h.x - HANDLE_SIZE / 2, h.y - HANDLE_SIZE / 2, HANDLE_SIZE, HANDLE_SIZE)
+        }
       }
     }
     ctx.restore()
@@ -355,7 +408,7 @@ const TemplateCanvas = forwardRef<TemplateCanvasRef, TemplateCanvasProps>(({
     // Check if clicking on selected field's resize handle
     if (selectedFieldId) {
       const selectedField = fields.find(f => f.id === selectedFieldId)
-      if (selectedField) {
+      if (selectedField && !selectedField.locked) {
         const handle = getResizeHandle(coords.x, coords.y, selectedField)
         if (handle) {
           setResizeHandle(handle)
@@ -372,10 +425,13 @@ const TemplateCanvas = forwardRef<TemplateCanvasRef, TemplateCanvasProps>(({
     const clickedField = findFieldAtPoint(coords.x, coords.y)
     if (clickedField) {
       onFieldSelect?.(clickedField.id)
-      setIsDragging(true)
-      setDragFieldId(clickedField.id)
-      setDragOffset({ x: coords.x - clickedField.x, y: coords.y - clickedField.y })
-      onFieldDragStart?.(clickedField.id, coords.x, coords.y)
+      // Only allow dragging if not locked
+      if (!clickedField.locked) {
+        setIsDragging(true)
+        setDragFieldId(clickedField.id)
+        setDragOffset({ x: coords.x - clickedField.x, y: coords.y - clickedField.y })
+        onFieldDragStart?.(clickedField.id, coords.x, coords.y)
+      }
     } else {
       onFieldSelect?.(null)
       onCanvasClick?.(coords.x, coords.y)

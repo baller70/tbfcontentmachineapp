@@ -8,6 +8,7 @@ export { default as VideoExporter } from './VideoExporter'
 export { useTemplateEditor } from './hooks/useTemplateEditor'
 export { useFieldManagement } from './hooks/useFieldManagement'
 export { useCanvasInteraction } from './hooks/useCanvasInteraction'
+export { useAlignment } from './hooks/useAlignment'
 
 // Types
 export * from './types'

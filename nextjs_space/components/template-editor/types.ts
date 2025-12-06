@@ -1,5 +1,8 @@
 // Template Editor Types
 
+// Shape types for the shape library
+export type ShapeType = 'rectangle' | 'circle' | 'triangle' | 'line' | 'arrow' | 'rounded-rectangle' | 'star' | 'hexagon'
+
 export interface TemplateField {
   id: string
   fieldName: string
@@ -48,6 +51,7 @@ export interface TemplateField {
   texture?: string
   cornerStyle?: 'sharp' | 'rounded' | 'circular'
   shape?: string
+  shapeType?: ShapeType  // New: specific shape type for shape library
   paintSplatter?: string
   animation?: string
   outlineColor?: string
@@ -69,6 +73,13 @@ export interface TemplateField {
   }
   effectValue?: string
   effectFilePath?: string
+  // New: Lock/Unlock feature
+  locked?: boolean
+  // New: Flip feature
+  flipX?: boolean
+  flipY?: boolean
+  // New: Grouping feature
+  groupId?: string
 }
 
 export interface StagingElement extends Omit<TemplateField, 'fieldName' | 'fieldLabel' | 'isRequired' | 'order'> {
@@ -95,7 +106,20 @@ export interface AlignmentGuide {
   label: string
 }
 
-export type EditorMode = 'select' | 'place-text' | 'place-number' | 'place-image' | 'place-logo' | 'place-video' | 'place-shape'
+export type EditorMode =
+  | 'select'
+  | 'place-text'
+  | 'place-number'
+  | 'place-image'
+  | 'place-logo'
+  | 'place-video'
+  | 'place-shape'
+  // Shape library modes
+  | 'place-circle'
+  | 'place-triangle'
+  | 'place-line'
+  | 'place-arrow'
+  | 'place-rounded-rect'
 
 export interface EditorState {
   fields: TemplateField[]
