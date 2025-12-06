@@ -84,6 +84,27 @@ export async function GET(request: NextRequest) {
   }
 }
 
+// Helper to strip new styling fields that may not exist in DB yet
+function stripNewFields(fields: any[]) {
+  const newFieldNames = [
+    'rotation', 'zIndex', 'blendMode',
+    'shadowEnabled', 'shadowColor', 'shadowBlur', 'shadowOffsetX', 'shadowOffsetY',
+    'letterSpacing', 'lineHeight', 'textTransform',
+    'borderRadius', 'borderWidth', 'borderColor',
+    'effectType', 'effectIntensity'
+  ]
+  return fields.map(field => {
+    const stripped = { ...field }
+    // Remove fields that might not exist in DB
+    newFieldNames.forEach(name => delete stripped[name])
+    // Also remove id and templateId as they're auto-generated
+    delete stripped.id
+    delete stripped.templateId
+    delete stripped.createdAt
+    return stripped
+  })
+}
+
 // CREATE a new template
 export async function POST(request: NextRequest) {
   try {
@@ -111,11 +132,11 @@ export async function POST(request: NextRequest) {
     // Validate and ensure image URL is canvas-safe
     const validation = validateTemplateImageUrl(imageUrl)
     let safeImageUrl = imageUrl
-    
+
     if (!validation.valid) {
       console.warn(`⚠️ Template image URL validation: ${validation.message}`)
       console.warn(`Original URL: ${imageUrl}`)
-      
+
       // Auto-fix by using proxy URL
       if (validation.fixedUrl) {
         safeImageUrl = validation.fixedUrl
@@ -123,26 +144,50 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const template = await prisma.template.create({
-      data: {
-        userId,
-        companyId,
-        name,
-        description,
-        category,
-        imageUrl: safeImageUrl,
-        width: width || 1080,
-        height: height || 1080,
-        fields: {
-          create: fields || []
+    // Try with all fields first, fall back to stripped fields if columns missing
+    try {
+      const template = await prisma.template.create({
+        data: {
+          userId,
+          companyId,
+          name,
+          description,
+          category,
+          imageUrl: safeImageUrl,
+          width: width || 1080,
+          height: height || 1080,
+          fields: {
+            create: fields || []
+          }
         }
-      },
-      include: {
-        fields: true
-      }
-    })
+      })
 
-    return NextResponse.json({ template }, { status: 201 })
+      return NextResponse.json({ template }, { status: 201 })
+    } catch (error: any) {
+      // If column doesn't exist, try with stripped fields
+      if (error?.code === 'P2022' || error?.message?.includes('column') || error?.message?.includes('Unknown column')) {
+        console.warn('Some TemplateField columns missing, using base fields only for create')
+
+        const template = await prisma.template.create({
+          data: {
+            userId,
+            companyId,
+            name,
+            description,
+            category,
+            imageUrl: safeImageUrl,
+            width: width || 1080,
+            height: height || 1080,
+            fields: {
+              create: stripNewFields(fields || [])
+            }
+          }
+        })
+
+        return NextResponse.json({ template }, { status: 201 })
+      }
+      throw error
+    }
   } catch (error) {
     console.error('Error creating template:', error)
     return NextResponse.json(
