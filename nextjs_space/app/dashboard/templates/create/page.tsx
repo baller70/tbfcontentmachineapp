@@ -190,10 +190,10 @@ export default function CreateTemplatePage() {
             </div>
             <div className="space-y-2">
               <Label>Business / Brand</Label>
-              <Select value={selectedCompanyId || ''} onValueChange={v => setSelectedCompanyId(v || null)}>
+              <Select value={selectedCompanyId || 'none'} onValueChange={v => setSelectedCompanyId(v === 'none' ? null : v)}>
                 <SelectTrigger className="bg-gray-800 border-gray-700"><SelectValue placeholder="Select business" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">None</SelectItem>
+                  <SelectItem value="none">None</SelectItem>
                   {companies.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
                 </SelectContent>
               </Select>
